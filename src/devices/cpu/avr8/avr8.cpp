@@ -137,6 +137,17 @@ enum
 	WGM5_FAST_PWM_OCR
 };
 
+enum
+{
+	SPMCSR_SPMEN_MASK  = (1 << 0),
+	SPMCSR_PGERS_MASK  = (1 << 1),
+	SPMCSR_PGWRT_MASK  = (1 << 2),
+	SPMCSR_BLBSET_MASK = (1 << 3),
+	SPMCSR_RWWSRE_MASK = (1 << 4),
+	SPMCSR_RWWSB_MASK  = (1 << 6),
+	SPMCSR_SPMIE_MASK  = (1 << 7),
+};
+
 // Opcode-Parsing Defines
 #define RD2(op)         (((op) >> 4) & 0x0003)
 #define RD3(op)         (((op) >> 4) & 0x0007)
@@ -763,6 +774,8 @@ atmega328_device::atmega328_device(const machine_config &mconfig, const char *ta
 atmega32u4_device::atmega32u4_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: avr8_device<4>(mconfig, tag, owner, clock, ATMEGA32U4, 0x3fff, address_map_constructor(FUNC(atmega32u4_device::atmega32u4_internal_map), this))
 {
+	m_spm_page_size = 0x80;
+	m_spm_temp_buf = std::make_unique<u8[]>(m_spm_page_size);
 }
 
 
@@ -843,6 +856,8 @@ avr8_device<NumTimers>::avr8_device(const machine_config &mconfig, const char *t
 	, m_spi_prescale(0)
 	, m_spi_prescale_count(0)
 	, m_spi_rx_shift(0)
+	, m_spm_page_size(0)
+	, m_spm_w_cb(*this)
 {
 	// Fill in default callbacks
 	for (int i = 0; i < 8*4; i++)
@@ -1244,6 +1259,8 @@ void avr8_device<NumTimers>::device_reset()
 	}
 
 	m_ocr2_not_reached_yet = true;
+
+	m_spm_timeout_counter = 0;
 }
 
 //-------------------------------------------------
@@ -3785,6 +3802,7 @@ void avr8_device<NumTimers>::ucsr0c_w(uint8_t data)
 }
 
 
+
 //**************************************************************************
 //  CORE EXECUTION LOOP
 //**************************************************************************
@@ -3884,6 +3902,15 @@ void avr8_device<NumTimers>::execute_run()
 					m_timer_prescale_count[5] -= m_timer_prescale[5];
 				}
 			}
+
+			if (m_spm_timeout_counter)
+			{
+				m_spm_timeout_counter--;
+				if (m_spm_timeout_counter == 0)
+				{
+					m_r[SPMCSR] &= ~SPMCSR_SPMEN_MASK;
+				}
+			}
 		}
 	}
 }
@@ -3900,3 +3927,97 @@ template void avr8_device<3>::pin_w<avr8_base_device::GPIOD>(int, int);
 template void avr8_device<3>::pin_w<avr8_base_device::GPIOE>(int, int);
 template void avr8_device<3>::pin_w<avr8_base_device::GPIOF>(int, int);
 template void avr8_device<3>::pin_w<avr8_base_device::GPIOG>(int, int);
+
+//**************************************************************************
+//  SPM HANDLERS
+//**************************************************************************
+
+void avr8_base_device::on_spm_instruction()
+{
+	fatalerror("on_spm_instruction() should have been overridden, but wasn't.\n");
+}
+
+template <int NumTimers>
+void avr8_device<NumTimers>::spmcsr_w(uint8_t data)
+{
+	m_r[SPMCSR] = data;
+	
+	// as a protection feature, the AVR8 starts a timeout where a SPM
+	// instruction must be executed within 4 cycles of this bit being
+	// set, or else the MCU flips the bit back to zero.
+	if (data & SPMCSR_SPMEN_MASK)
+	{
+		m_spm_timeout_counter = 4;
+	}
+}
+
+template <int NumTimers>
+void avr8_device<NumTimers>::on_spm_instruction()
+{
+	if (!(m_r[SPMCSR] & SPMCSR_SPMEN_MASK))
+	{
+		return;
+	}
+
+	// a lot of AVR8 programs won't need to use SPM, so these values will be null or 0
+	// in that case. then, if drivers execute SPM when they aren't supposed to,
+	// we can just log an error.
+	bool skip_write = (!m_spm_page_size || !m_spm_temp_buf);
+	if (skip_write)
+	{
+		logerror("%s: unexpected/unimplemented spm exec\n",
+				 machine().describe_context());
+	}
+
+	m_r[SPMCSR] &= ~(SPMCSR_SPMEN_MASK);
+	m_spm_timeout_counter = 0;
+
+	// remember that the individual modes are mutually exclusive;
+	// setting more than one bit causes the command to be ignored
+	bool write_done = false;
+	switch (m_r[SPMCSR] & (SPMCSR_RWWSB_MASK | SPMCSR_BLBSET_MASK | SPMCSR_PGWRT_MASK | SPMCSR_PGERS_MASK))
+	{
+		case SPMCSR_PGWRT_MASK: // write temporary buffer to page
+			if (!skip_write)
+			{
+				int base = ZREG & ~(m_spm_page_size-1);
+				for (int i = 0; i < m_spm_page_size; i++)
+				{
+					m_spm_w_cb(base + i, m_spm_temp_buf[i]);
+				}
+			}
+			write_done = true;
+			break;
+
+		case SPMCSR_PGERS_MASK: // erase page
+			if (!skip_write)
+			{
+				int base = ZREG & ~(m_spm_page_size-1);
+				for (int i = 0; i < m_spm_page_size; i++)
+				{
+					m_spm_w_cb(base + i, 0xff);
+				}
+			}
+			write_done = true;
+			break;
+
+		case 0: // write to temporary page buffer
+			if (!skip_write)
+			{
+				m_spm_temp_buf[ZREG & (m_spm_page_size-1)]   = m_r[R0];
+				m_spm_temp_buf[(ZREG & (m_spm_page_size-1))+1] = m_r[R1];
+			}
+			break;
+
+		default:
+			logerror("%s: unimplemented spm operation. spmcsr = %02x\n",
+					 machine().describe_context(),
+					 m_r[SPMCSR]);
+			break;
+	}
+
+	if (write_done && (m_r[SPMCSR] & SPMCSR_SPMIE_MASK))
+	{
+		update_interrupt(AVR8_INT_SPM_RDY);
+	}
+}

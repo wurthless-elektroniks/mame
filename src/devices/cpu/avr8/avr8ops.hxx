@@ -1210,12 +1210,16 @@ void avr8_base_device::op_elpm(uint16_t op)
 
 void avr8_base_device::op_spm(uint16_t op)
 {
-	op_unimpl(op);
+	on_spm_instruction();
 }
 
 void avr8_base_device::op_spmzi(uint16_t op)
 {
-	op_unimpl(op);
+	on_spm_instruction();
+
+	int zpp = ZREG + 2;
+	m_r[R31] = zpp >> 8;
+	m_r[R30] = zpp & 0xff;
 }
 
 void avr8_base_device::op_icall(uint16_t op)

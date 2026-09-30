@@ -687,6 +687,9 @@ protected:
 	// device_state_interface overrides
 	virtual void state_string_export(const device_state_entry &entry, std::string &str) const override;
 
+	// SPM Z or SPM Z+ executed; subclasses must implement exact behavior
+	virtual void on_spm_instruction();
+
 	// address spaces
 	const address_space_config m_program_config;
 	const address_space_config m_data_config;
@@ -870,6 +873,7 @@ public:
 	// ADC
 	template<uint8_t Pin> auto adc_in() { return m_adc_in_cb[Pin].bind(); }
 
+	auto spm_w_cb() { return m_spm_w_cb.bind(); }
 protected:
 	avr8_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock, const device_type type, uint32_t address_mask, address_map_constructor internal_map);
 
@@ -975,6 +979,12 @@ protected:
 	uint8_t m_spi_prescale_count;
 	int8_t m_spi_prescale_countdown;
 	uint8_t m_spi_rx_shift;
+
+	// SPM
+	uint16_t 				   m_spm_page_size;
+	uint8_t  				   m_spm_timeout_counter;
+	std::unique_ptr<uint8_t[]> m_spm_temp_buf;
+	devcb_write8               m_spm_w_cb;
 
 	// timers
 	void gtccr_w(uint8_t data);
@@ -1188,6 +1198,10 @@ protected:
 	void timsk5_w(uint8_t data);
 
 	void timer5_tick();
+
+	// SPM
+	void spmcsr_w(uint8_t data);
+	void on_spm_instruction() override;
 };
 
 // device type definition
