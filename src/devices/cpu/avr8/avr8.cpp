@@ -139,13 +139,24 @@ enum
 
 enum
 {
-	SPMCSR_SPMEN_MASK  = (1 << 0),
+	SPMCSR_SPMEN_MASK  = (1 << 0), // also status bit during programming
 	SPMCSR_PGERS_MASK  = (1 << 1),
 	SPMCSR_PGWRT_MASK  = (1 << 2),
 	SPMCSR_BLBSET_MASK = (1 << 3),
 	SPMCSR_RWWSRE_MASK = (1 << 4),
+	SPMCSR_SIGRD_MASK  = (1 << 5), // on some AVR8s, many don't have this
 	SPMCSR_RWWSB_MASK  = (1 << 6),
 	SPMCSR_SPMIE_MASK  = (1 << 7),
+};
+
+enum
+{
+	SPM_OP_NOP                     = 0, // fake; used as default when invalid op written
+	SPM_OP_WRITE_TO_TEMP_BUF       = SPMCSR_SPMEN_MASK,
+	SPM_OP_ERASE_PAGE              = SPMCSR_SPMEN_MASK | SPMCSR_PGERS_MASK,
+	SPM_OP_WRITE_PAGE              = SPMCSR_SPMEN_MASK | SPMCSR_PGWRT_MASK,
+	SPM_OP_BOOT_LOCK_BIT_SET       = SPMCSR_SPMEN_MASK | SPMCSR_BLBSET_MASK,
+	SPM_OP_RWW_SECTION_READ_ENABLE = SPMCSR_SPMEN_MASK | SPMCSR_RWWSRE_MASK,
 };
 
 // Opcode-Parsing Defines
@@ -734,7 +745,7 @@ void attiny15_device::attiny15_internal_map(address_map &map)
 //-------------------------------------------------
 
 atmega88_device::atmega88_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA88, 0x0fff, address_map_constructor(FUNC(atmega88_device::atmega88_internal_map), this))
+	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA88, 0x0fff, 0x40, address_map_constructor(FUNC(atmega88_device::atmega88_internal_map), this))
 {
 }
 
@@ -754,7 +765,7 @@ bool atmega88_device::pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group) c
 //-------------------------------------------------
 
 atmega168_device::atmega168_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA168, 0x1fff, address_map_constructor(FUNC(atmega168_device::atmega168_internal_map), this))
+	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA168, 0x1fff, 0x80, address_map_constructor(FUNC(atmega168_device::atmega168_internal_map), this))
 {
 }
 
@@ -763,7 +774,7 @@ atmega168_device::atmega168_device(const machine_config &mconfig, const char *ta
 //-------------------------------------------------
 
 atmega328_device::atmega328_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA328, 0x3fff, address_map_constructor(FUNC(atmega328_device::atmega328_internal_map), this))
+	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA328, 0x3fff, 0x80, address_map_constructor(FUNC(atmega328_device::atmega328_internal_map), this))
 {
 }
 
@@ -772,7 +783,7 @@ atmega328_device::atmega328_device(const machine_config &mconfig, const char *ta
 //-------------------------------------------------
 
 atmega32u4_device::atmega32u4_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<4>(mconfig, tag, owner, clock, ATMEGA32U4, 0x3fff, address_map_constructor(FUNC(atmega32u4_device::atmega32u4_internal_map), this))
+	: avr8_device<4>(mconfig, tag, owner, clock, ATMEGA32U4, 0x3fff, 0x80, address_map_constructor(FUNC(atmega32u4_device::atmega32u4_internal_map), this))
 {
 	m_spm_page_size = 0x80;
 	m_spm_temp_buf = std::make_unique<u8[]>(m_spm_page_size);
@@ -784,7 +795,7 @@ atmega32u4_device::atmega32u4_device(const machine_config &mconfig, const char *
 //-------------------------------------------------
 
 atmega644_device::atmega644_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA644, 0x7fff, address_map_constructor(FUNC(atmega644_device::atmega644_internal_map), this))
+	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA644, 0x7fff, 0x100, address_map_constructor(FUNC(atmega644_device::atmega644_internal_map), this))
 {
 }
 
@@ -793,7 +804,7 @@ atmega644_device::atmega644_device(const machine_config &mconfig, const char *ta
 //-------------------------------------------------
 
 atmega1284_device::atmega1284_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA1284, 0xffff, address_map_constructor(FUNC(atmega1284_device::atmega1284_internal_map), this))
+	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA1284, 0xffff, 0x100, address_map_constructor(FUNC(atmega1284_device::atmega1284_internal_map), this))
 {
 }
 
@@ -802,7 +813,7 @@ atmega1284_device::atmega1284_device(const machine_config &mconfig, const char *
 //-------------------------------------------------
 
 atmega1280_device::atmega1280_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<6>(mconfig, tag, owner, clock, ATMEGA1280, 0xffff, address_map_constructor(FUNC(atmega1280_device::atmega1280_internal_map), this))
+	: avr8_device<6>(mconfig, tag, owner, clock, ATMEGA1280, 0xffff, 0x100, address_map_constructor(FUNC(atmega1280_device::atmega1280_internal_map), this))
 {
 }
 
@@ -811,7 +822,7 @@ atmega1280_device::atmega1280_device(const machine_config &mconfig, const char *
 //-------------------------------------------------
 
 atmega2560_device::atmega2560_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<6>(mconfig, tag, owner, clock, ATMEGA2560, 0x1ffff, address_map_constructor(FUNC(atmega2560_device::atmega2560_internal_map), this))
+	: avr8_device<6>(mconfig, tag, owner, clock, ATMEGA2560, 0x1ffff, 0x100, address_map_constructor(FUNC(atmega2560_device::atmega2560_internal_map), this))
 {
 }
 
@@ -819,8 +830,10 @@ atmega2560_device::atmega2560_device(const machine_config &mconfig, const char *
 //  attiny15_device - constructor
 //-------------------------------------------------
 
+// TODO: ATTiny15 should be removed; nothing is using it and its implementation
+// is entirely wrong. adding proper ATTiny support means refactoring the whole avr8 core
 attiny15_device::attiny15_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<2>(mconfig, tag, owner, clock, ATTINY15, 0x01ff, address_map_constructor(FUNC(attiny15_device::attiny15_internal_map), this))
+	: avr8_device<2>(mconfig, tag, owner, clock, ATTINY15, 0x01ff, 0, address_map_constructor(FUNC(attiny15_device::attiny15_internal_map), this))
 {
 }
 
@@ -1173,6 +1186,10 @@ void avr8_device<NumTimers>::device_start()
 	save_item(NAME(m_spi_prescale_count));
 	save_item(NAME(m_spi_prescale_countdown));
 	save_item(NAME(m_spi_rx_shift));
+
+	// SPM
+	m_spm_write_timer = timer_alloc(FUNC(avr8_device<NumTimers>::spm_operation_complete), this);
+
 }
 
 //-------------------------------------------------
@@ -3908,6 +3925,7 @@ void avr8_device<NumTimers>::execute_run()
 				m_spm_timeout_counter--;
 				if (m_spm_timeout_counter == 0)
 				{
+					m_spm_pending_op = SPM_OP_NOP;
 					m_r[SPMCSR] &= ~SPMCSR_SPMEN_MASK;
 				}
 			}
@@ -3941,20 +3959,44 @@ template <int NumTimers>
 void avr8_device<NumTimers>::spmcsr_w(uint8_t data)
 {
 	m_r[SPMCSR] = data;
-	
-	// as a protection feature, the AVR8 starts a timeout where a SPM
-	// instruction must be executed within 4 cycles of this bit being
-	// set, or else the MCU flips the bit back to zero.
-	if (data & SPMCSR_SPMEN_MASK)
+
+	if (!(data & SPMCSR_SPMEN_MASK))
 	{
-		m_spm_timeout_counter = 4;
+		return;
+	}
+
+	// the lower 5 bits set the flash operation that spm runs.
+	// the datasheets recommend that only one should execute at a time,
+	// so assume that running multiple operations at once results in undefined behavior
+	int op = BIT(data, 0, 5);
+	switch (op)
+	{
+		case SPM_OP_WRITE_TO_TEMP_BUF:
+		case SPM_OP_ERASE_PAGE:
+		case SPM_OP_WRITE_PAGE:
+		case SPM_OP_BOOT_LOCK_BIT_SET:
+		case SPM_OP_RWW_SECTION_READ_ENABLE:
+			m_spm_pending_op = op;
+
+			// once a valid SPM operation is latched the program has 4 cycles
+			// to execute a SPM opcode or the operation is cancelled.
+			// this is a protection feature so that if the CPU is executing garbage,
+			// it doesn't start overwriting flash.
+			m_spm_timeout_counter = 4;
+			break;
+
+		default:
+			// invalid ops have no effect, so cancel the SPM operation immediately
+			m_spm_pending_op = SPM_OP_NOP;
+			m_r[SPMCSR] &= ~SPMCSR_SPMEN_MASK;
+			return;
 	}
 }
 
 template <int NumTimers>
 void avr8_device<NumTimers>::on_spm_instruction()
 {
-	if (!(m_r[SPMCSR] & SPMCSR_SPMEN_MASK))
+	if (m_spm_pending_op == SPM_OP_NOP)
 	{
 		return;
 	}
@@ -3968,45 +4010,27 @@ void avr8_device<NumTimers>::on_spm_instruction()
 		logerror("%s: unexpected/unimplemented spm exec\n",
 				 machine().describe_context());
 	}
-
-	m_r[SPMCSR] &= ~(SPMCSR_SPMEN_MASK);
+	
 	m_spm_timeout_counter = 0;
-
-	// remember that the individual modes are mutually exclusive;
-	// setting more than one bit causes the command to be ignored
-	bool write_done = false;
-	switch (m_r[SPMCSR] & (SPMCSR_RWWSB_MASK | SPMCSR_BLBSET_MASK | SPMCSR_PGWRT_MASK | SPMCSR_PGERS_MASK))
+	
+	switch (m_spm_pending_op)
 	{
-		case SPMCSR_PGWRT_MASK: // write temporary buffer to page
-			if (!skip_write)
-			{
-				int base = ZREG & ~(m_spm_page_size-1);
-				for (int i = 0; i < m_spm_page_size; i++)
-				{
-					m_spm_w_cb(base + i, m_spm_temp_buf[i]);
-				}
-			}
-			write_done = true;
+		case SPM_OP_WRITE_PAGE:
+		case SPM_OP_ERASE_PAGE:
+			// any page write/erase operation happens in the background
+			m_spm_active_op = m_spm_pending_op;
+			m_spm_current_write_page = ZREG & ~(m_spm_page_size-1);
+			m_spm_write_timer->adjust(attotime::from_msec(m_spm_write_time_msec));
 			break;
 
-		case SPMCSR_PGERS_MASK: // erase page
+		case SPM_OP_WRITE_TO_TEMP_BUF:
 			if (!skip_write)
 			{
-				int base = ZREG & ~(m_spm_page_size-1);
-				for (int i = 0; i < m_spm_page_size; i++)
-				{
-					m_spm_w_cb(base + i, 0xff);
-				}
+				int buffer_offset = ZREG & (m_spm_page_size-1);
+				m_spm_temp_buf[buffer_offset] = m_r[R0];
+				m_spm_temp_buf[buffer_offset+1] = m_r[R1];
 			}
-			write_done = true;
-			break;
-
-		case 0: // write to temporary page buffer
-			if (!skip_write)
-			{
-				m_spm_temp_buf[ZREG & (m_spm_page_size-1)]   = m_r[R0];
-				m_spm_temp_buf[(ZREG & (m_spm_page_size-1))+1] = m_r[R1];
-			}
+			m_spm_pending_op = SPM_OP_NOP;
 			break;
 
 		default:
@@ -4015,9 +4039,36 @@ void avr8_device<NumTimers>::on_spm_instruction()
 					 m_r[SPMCSR]);
 			break;
 	}
+}
 
-	if (write_done && (m_r[SPMCSR] & SPMCSR_SPMIE_MASK))
+template <int NumTimers>
+TIMER_CALLBACK_MEMBER(avr8_device<NumTimers>::spm_operation_complete)
+{
+	m_spm_write_timer->adjust(attotime::never);
+
+	// flash write operations are clocked internally by the chip's RC oscillator
+	// so there isn't a reliable way to time them cycle-by-cycle.
+	// instead, we execute them after the write timer expires.
+	// this should at least expose buggy behavior in programs that attempt to
+	// access a flash page before it is fully written or erased.
+	if (m_spm_active_op == SPM_OP_WRITE_PAGE || m_spm_active_op == SPM_OP_ERASE_PAGE)
 	{
-		update_interrupt(AVR8_INT_SPM_RDY);
+		for (int i = 0; i < m_spm_page_size; i++)
+		{
+			uint8_t byte_out = m_spm_active_op == SPM_OP_ERASE_PAGE ? 0xff : m_spm_temp_buf[i];
+			m_spm_w_cb(m_spm_current_write_page + i, byte_out);
+		}
+
+		if (m_spm_active_op == SPM_OP_WRITE_PAGE)
+		{
+			memset(m_spm_temp_buf, 0xff, m_spm_page_size);
+		}
+
+		if (m_r[SPMCSR] & SPMCSR_SPMIE_MASK)
+		{
+			update_interrupt(INT)
+		}
 	}
+
+	m_r[SPMCSR] &= ~SPMCSR_SPMEN_MASK;
 }

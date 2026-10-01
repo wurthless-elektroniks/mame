@@ -875,7 +875,7 @@ public:
 
 	auto spm_w_cb() { return m_spm_w_cb.bind(); }
 protected:
-	avr8_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock, const device_type type, uint32_t address_mask, address_map_constructor internal_map);
+	avr8_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock, const device_type type, uint32_t address_mask, uint16_t flash_page_size, address_map_constructor internal_map);
 
 	typedef delegate<void (void)> timer_func;
 
@@ -980,11 +980,16 @@ protected:
 	int8_t m_spi_prescale_countdown;
 	uint8_t m_spi_rx_shift;
 
-	// SPM
+	// SPM vars
 	uint16_t 				   m_spm_page_size;
+	uint8_t					   m_spm_write_time_msec;
 	uint8_t  				   m_spm_timeout_counter;
+	uint8_t                    m_spm_pending_op;
+	uint8_t                    m_spm_active_op;
+	uint32_t                   m_spm_current_write_page;
 	std::unique_ptr<uint8_t[]> m_spm_temp_buf;
 	devcb_write8               m_spm_w_cb;
+	emu_timer*				   m_spm_write_timer;
 
 	// timers
 	void gtccr_w(uint8_t data);
@@ -1202,6 +1207,7 @@ protected:
 	// SPM
 	void spmcsr_w(uint8_t data);
 	void on_spm_instruction() override;
+	TIMER_CALLBACK_MEMBER(spm_operation_complete);
 };
 
 // device type definition
