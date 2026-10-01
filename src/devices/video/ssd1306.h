@@ -37,6 +37,9 @@ public:
 	ssd1306_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock);
 
 	virtual uint32_t palette_entries() const noexcept override;
+	
+	// scrolling and alternate scan modes still need to be implemented
+	static constexpr feature_type imperfect_features() { return feature::GRAPHICS; }
 
 	void set_external_oscillator(bool use_external_oscillator);
 	void set_intf_mode(uint8_t mode);
@@ -194,7 +197,7 @@ private:
 	bool m_base_rowscan_invert;
 
 	// display memory: one "page" is 8 pixels tall, one line is 128 pixels long
-	std::unique_ptr<u8[]> m_gddram;
+	std::unique_ptr<uint8_t[]> m_gddram;
 };
 
 #endif
