@@ -127,9 +127,7 @@ public:
 
 	void arduboy_base(machine_config &config);
 	void arduboy(machine_config &config);
-	void ardbyfx(machine_config &config);
 
-	void fx_prg_map(address_map &map) ATTR_COLD;
 	void prg_map(address_map &map) ATTR_COLD;
 	void data_map(address_map &map) ATTR_COLD;
 
@@ -162,7 +160,6 @@ private:
 	void port_f_w(uint8_t data);
 
 	uint8_t intflash_r(offs_t offset);
-	void intflash_w(offs_t offset, uint8_t data);
 
 #if DELAY_HACK_ENABLE
 	void apply_delay_sleep_hack();
@@ -186,12 +183,6 @@ void arduboy_state::machine_start()
 	// it also gives us the bonus of saving .hex contents to the nvram folder,
 	// which can be fed into a disassembler later.
 	subdevice<nvram_device>("intflash")->set_base(&m_internal_flash[0], 0x7800);
-
-	if (m_spi_flash)
-	{
-		m_spi_flash->set_rom_ptr(memregion("spi")->base());
-		m_spi_flash->set_rom_size(memregion("spi")->bytes());
-	}
 }
 
 void arduboy_state::machine_reset()
@@ -276,11 +267,6 @@ uint8_t arduboy_state::intflash_r(offs_t offset)
 	return m_internal_flash[offset];
 }
 
-void arduboy_state::intflash_w(offs_t offset, uint8_t data)
-{
-	m_internal_flash[offset] = data;
-}
-
 void arduboy_state::prg_map(address_map &map)
 {
 	map(0x0000, 0x77ff).r(FUNC(arduboy_state::intflash_r));
@@ -288,14 +274,6 @@ void arduboy_state::prg_map(address_map &map)
 	// and who flashed what to the system.
 	// running the bootloaders will require full spm emulation,
 	// which the AVR8 core doesn't have yet.
-}
-
-void arduboy_state::fx_prg_map(address_map &map)
-{
-	map(0x0000, 0x73ff).r(FUNC(arduboy_state::intflash_r));
-	// the FX bootloader will wipe all pages above 0x7400,
-	// so we'll effectively write-protect the bootloader
-	map(0x7400, 0x7fff).rom().region("bootloader", 0);
 }
 
 void arduboy_state::data_map(address_map &map)
@@ -332,17 +310,17 @@ void arduboy_state::arduboy_base(machine_config &config)
 	m_maincpu->set_high_fuses(0xd3); // actually d2, but games will run without the bootloader
 	m_maincpu->set_extended_fuses(0xc2);
 
-	m_maincpu->gpio_in<atmega328_device::GPIOB>().set(FUNC(arduboy_state::port_b_r));
-	m_maincpu->gpio_in<atmega328_device::GPIOC>().set(FUNC(arduboy_state::port_c_r));
-	m_maincpu->gpio_in<atmega328_device::GPIOD>().set(FUNC(arduboy_state::port_d_r));
-	m_maincpu->gpio_in<atmega328_device::GPIOE>().set_ioport(m_porte_buttons);
-	m_maincpu->gpio_in<atmega328_device::GPIOF>().set_ioport(m_portf_buttons);
+	m_maincpu->gpio_in<atmega32u4_device::GPIOB>().set(FUNC(arduboy_state::port_b_r));
+	m_maincpu->gpio_in<atmega32u4_device::GPIOC>().set(FUNC(arduboy_state::port_c_r));
+	m_maincpu->gpio_in<atmega32u4_device::GPIOD>().set(FUNC(arduboy_state::port_d_r));
+	m_maincpu->gpio_in<atmega32u4_device::GPIOE>().set_ioport(m_porte_buttons);
+	m_maincpu->gpio_in<atmega32u4_device::GPIOF>().set_ioport(m_portf_buttons);
 
-	m_maincpu->gpio_out<atmega328_device::GPIOB>().set(FUNC(arduboy_state::port_b_w));
-	m_maincpu->gpio_out<atmega328_device::GPIOC>().set(FUNC(arduboy_state::port_c_w));
-	m_maincpu->gpio_out<atmega328_device::GPIOD>().set(FUNC(arduboy_state::port_d_w));
-	m_maincpu->gpio_out<atmega328_device::GPIOE>().set(FUNC(arduboy_state::port_e_w));
-	m_maincpu->gpio_out<atmega328_device::GPIOF>().set(FUNC(arduboy_state::port_f_w));
+	m_maincpu->gpio_out<atmega32u4_device::GPIOB>().set(FUNC(arduboy_state::port_b_w));
+	m_maincpu->gpio_out<atmega32u4_device::GPIOC>().set(FUNC(arduboy_state::port_c_w));
+	m_maincpu->gpio_out<atmega32u4_device::GPIOD>().set(FUNC(arduboy_state::port_d_w));
+	m_maincpu->gpio_out<atmega32u4_device::GPIOE>().set(FUNC(arduboy_state::port_e_w));
+	m_maincpu->gpio_out<atmega32u4_device::GPIOF>().set(FUNC(arduboy_state::port_f_w));
 
 	NVRAM(config, "intflash", nvram_device::DEFAULT_ALL_1);
 
@@ -369,20 +347,6 @@ void arduboy_state::arduboy(machine_config &config)
 	GENERIC_CARTSLOT(config, m_cart, generic_plain_slot, "gameprg", "bin,hex");
 	m_cart->set_must_be_loaded(true);
 	m_cart->set_device_load(FUNC(arduboy_state::gameprg_load));
-}
-
-void arduboy_state::ardbyfx(machine_config &config)
-{
-	arduboy_base(config);
-
-	m_maincpu->set_addrmap(AS_PROGRAM, &arduboy_state::fx_prg_map);
-	m_maincpu->set_high_fuses(0xf2); // FX must go through bootloader to load the menu program
-	m_maincpu->spm_w_cb().set(FUNC(arduboy_state::intflash_w));
-
-	GENERIC_SPI_FLASH(config, m_spi_flash);
-	m_spi_flash->set_jedec_manufacturer(0xef); // Winbond
-	m_spi_flash->set_jedec_memtype(0x40);
-	m_spi_flash->set_jedec_capacity(0x18);
 }
 
 #if DELAY_HACK_ENABLE
@@ -638,22 +602,10 @@ ROM_START( arduboy )
 	ROM_REGION( 0x800, "eeprom", ROMREGION_ERASE00 )
 ROM_END
 
-
-ROM_START( ardbyfx )
-	ROM_REGION( 0xc00, "bootloader", ROMREGION_ERASEFF )
-	ROM_LOAD( "fxboot.bin", 0x0000, 0x0c00, CRC(4cce6edf) SHA1(bc5a5f850b56916328d189d51844b1b334d83713) )
-
-	ROM_REGION( 0x800, "eeprom", ROMREGION_ERASE00 )
-	
-	// the ROM here is the default flash that was dumped from my arduboy fx.
-	// you can roll your own flash image, though; just build it with the usual
-	// arduboy tools and then replace nvram/ardbyfx/spi_flash with your build.
-	ROM_REGION( 0x01000000, "spi", ROMREGION_ERASEFF )
-	ROM_LOAD( "fxflash.bin", 0x00000000, 0x01000000, CRC(f3cdc3fa) SHA1(124d932a7b43d0d47a3bf2444b1936ee724a700f) )
-ROM_END
+// for documentation purposes: the Arduboy FX bootloader, which is 3k
+// CRC(4cce6edf) SHA1(bc5a5f850b56916328d189d51844b1b334d83713)
 
 } // anonymous namespace
 
-//   YEAR  NAME     PARENT   COMPAT  MACHINE   INPUT    CLASS          INIT        COMPANY    FULLNAME
-CONS(2015, arduboy, 0,       0,      arduboy,  arduboy, arduboy_state, empty_init, "Arduboy", "Arduboy",    MACHINE_IMPERFECT_GRAPHICS | MACHINE_NOT_WORKING)
-CONS(2021, ardbyfx, arduboy, 0,      ardbyfx,  arduboy, arduboy_state, empty_init, "Arduboy", "Arduboy FX", MACHINE_IMPERFECT_GRAPHICS | MACHINE_NOT_WORKING)
+//   YEAR  NAME     PARENT  COMPAT  MACHINE   INPUT    CLASS          INIT        COMPANY    FULLNAME
+CONS(2015, arduboy, 0,      0,      arduboy,  arduboy, arduboy_state, empty_init, "Arduboy", "Arduboy", MACHINE_NOT_WORKING)

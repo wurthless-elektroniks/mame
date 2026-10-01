@@ -533,6 +533,7 @@ DEFINE_DEVICE_TYPE(ATMEGA88,   atmega88_device,   "atmega88",   "Atmel ATmega88"
 DEFINE_DEVICE_TYPE(ATMEGA168,  atmega168_device,  "atmega168",  "Atmel ATmega168")
 DEFINE_DEVICE_TYPE(ATMEGA328,  atmega328_device,  "atmega328",  "Atmel ATmega328")
 DEFINE_DEVICE_TYPE(ATMEGA32U4, atmega32u4_device, "atmega32u4", "Atmel ATmega32U4")
+DEFINE_DEVICE_TYPE(ATMEGA32U4, atmega32u4_device, "atmega32u4", "Atmel ATmega32U4")
 DEFINE_DEVICE_TYPE(ATMEGA644,  atmega644_device,  "atmega644",  "Atmel ATmega644")
 DEFINE_DEVICE_TYPE(ATMEGA1284, atmega1284_device, "atmega1284", "Atmel ATmega1284")
 DEFINE_DEVICE_TYPE(ATMEGA1280, atmega1280_device, "atmega1280", "Atmel ATmega1280")
@@ -777,18 +778,6 @@ atmega328_device::atmega328_device(const machine_config &mconfig, const char *ta
 	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA328, 0x3fff, 0x80, address_map_constructor(FUNC(atmega328_device::atmega328_internal_map), this))
 {
 }
-
-//-------------------------------------------------
-//  atmega32u4_device - constructor
-//-------------------------------------------------
-
-atmega32u4_device::atmega32u4_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<4>(mconfig, tag, owner, clock, ATMEGA32U4, 0x3fff, 0x80, address_map_constructor(FUNC(atmega32u4_device::atmega32u4_internal_map), this))
-{
-	m_spm_page_size = 0x80;
-	m_spm_temp_buf = std::make_unique<u8[]>(m_spm_page_size);
-}
-
 
 //-------------------------------------------------
 //  atmega644_device - constructor
