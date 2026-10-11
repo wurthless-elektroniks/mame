@@ -706,6 +706,7 @@ protected:
 	{
 		uint8_t  m_intidx; 	     // one of the INTIDX_x universal interrupt mappings
 		uint8_t  m_intvector;    // interrupt vector number
+		uint8_t  m_intondev;     // interrupt is handled by a device (m_intreg, m_intmask, m_regindex, m_regmask all ignored)
 		uint8_t  m_intreg;       // register containing interrupt enable flag
 		uint8_t  m_intmask;      // bitmask for the interrupt enable flag itself
 		uint8_t  m_regindex;     // event indication register containing event flag e.g., TOV0
@@ -743,6 +744,7 @@ protected:
 	// device-level overrides
 	virtual void device_start() override ATTR_COLD;
 	virtual void device_reset() override ATTR_COLD;
+	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
 
 	// device_execute_interface overrides
 	virtual uint32_t execute_min_cycles() const noexcept override { return 1; }
@@ -785,6 +787,7 @@ protected:
 
 	// Interrupt handling tables
 	uint8_t m_int_statuses[INTIDX_COUNT];   // persistent, must be savestate-able
+	devcb_write_line::array<INTIDX_COUNT> m_int_ack_cbs; // rebuilt at device_start
 	std::unique_ptr<interrupt_condition[]> m_int_conditions_table; // rebuilt at device_start
 
 	// Interrupt handling size for the AVR8s is usually 2; some devices will only use 1
@@ -803,6 +806,8 @@ protected:
 	inline bool interrupt_condition_entry_is_terminator(interrupt_condition condition);
 	void populate_interrupt_condition_table();
 	void update_interrupt(uint8_t intidx);
+
+	void set_interrupt_line(uint8_t intidx, uint8_t state);
 	
 	/**
 	 * Set interrupt flag for the given intidx. If the interrupt is also enabled,

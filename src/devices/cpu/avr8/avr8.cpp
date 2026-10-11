@@ -642,19 +642,64 @@ void avr8_device<NumTimers>::base_internal_map(address_map &map)
 	map(0x00c2, 0x00c2).w(FUNC(avr8_device::ucsr0c_w));
 }
 
+#if 0
+
+void megaavr_classic_base_device::megaavr_base_internal_map(address_map &map)
+{
+	// Map only the base register area.
+	// In the future everything in the I/O space will be a device.
+	// And, if any megaAVR device tries accessing a register that doesn't exist,
+	// it should cause a logerror(), rather than storing the data.
+	map(0x0000, 0x001f).ram().share(m_r);
+
+	// Timer 0 is the same across all classic/legacy megaAVR devices
+	map(0x0035, 0x0035).rw(m_timer0, FUNC(megaavr_timer_0_device::tifr_r), FUNC(megaavr_timer_0_device::tifr_w));
+	map(0x0044, 0x0044).rw(m_timer0, FUNC(megaavr_timer_0_device::tccr_a_r), FUNC(megaavr_timer_0_device::tccr_a_w));
+	map(0x0045, 0x0045).rw(m_timer0, FUNC(megaavr_timer_0_device::tccr_b_r), FUNC(megaavr_timer_0_device::tccr_b_w));
+	map(0x0046, 0x0046).rw(m_timer0, FUNC(megaavr_timer_0_device::tcnt_r), FUNC(megaavr_timer_0_device::tcnt_w)); 
+	map(0x0047, 0x0047).rw(m_timer0, FUNC(megaavr_timer_0_device::ocr_a_r), FUNC(megaavr_timer_0_device::ocr_a_w_r));
+	map(0x0048, 0x0048).rw(m_timer0, FUNC(megaavr_timer_0_device::ocr_b_r), FUNC(megaavr_timer_0_device::ocr_b_w_r));
+	map(0x006e, 0x006e).rw(m_timer0, FUNC(megaavr_timer_0_device::timsk_r), FUNC(megaavr_timer_0_device::timsk_w));
+
+}
+
+void atmegax8_base_device::atmegax8_base_internal_map(address_map &map)
+{
+	
+}
+
+void atmegax8_base_device::atmegaxu4_base_internal_map(address_map &map)
+{
+	// USB PLL: pretend it's always locked for now
+	map(0x0049, 0x0049).lrw8(
+		NAME([this] { return m_r[0x49] | 1; }),
+		NAME([this](uint8_t data) { m_r[0x49] = data; }));
+	
+}
+
+#endif
+
+
+
 void atmega88_device::atmega88_internal_map(address_map &map)
 {
 	avr8_device::base_internal_map(map);
+
+	// TODO: internal SRAM
 }
 
 void atmega168_device::atmega168_internal_map(address_map &map)
 {
 	avr8_device::base_internal_map(map);
+
+	// TODO: internal SRAM
 }
 
 void atmega328_device::atmega328_internal_map(address_map &map)
 {
 	avr8_device::base_internal_map(map);
+
+	// TODO: internal SRAM
 }
 
 void atmega32u4_device::atmega32u4_internal_map(address_map &map)
@@ -663,6 +708,8 @@ void atmega32u4_device::atmega32u4_internal_map(address_map &map)
 
 	// fake USB PLL lock so that code that reads it is satisfied
 	map(0x0049, 0x0049).lr8(NAME([this] { return m_r[0x49] | 1; }));
+
+	// TODO: internal SRAM
 }
 
 void atmega644_device::atmega644_internal_map(address_map &map)
@@ -1245,6 +1292,94 @@ void avr8_device<NumTimers>::device_reset()
 }
 
 //-------------------------------------------------
+//  device_add_mconfig - add device configuration
+//-------------------------------------------------
+
+void avr8_base_device::device_add_mconfig(machine_config &config)
+{
+	// the base AVR8 class is not responsible for installing peripherals
+}
+
+#if 0
+
+void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
+{
+	// Timer 0 basic implementation is the same across the classic megaAVR lineup,
+	// but signal routing differs. Each subclass device_add_mconfig() is responsible
+	// for routing them.
+	AVR8_MEGAAVR_CLASSIC_TIMER_0(m_timer_0);
+	m_timer_0->set_tov_int_cb( [] (uint8_t data)
+	{
+		if (data != 0)
+		{
+			set_interrupt(INTIDX_TOV0);
+		}
+		else
+		{
+			clear_interrupt(INTIDX_TOV0);
+		}
+	});
+
+
+
+}
+
+// ATMegax8 series (ATMega88, ATMega168, ATMega328)
+void atmegax8_base_device::device_add_mconfig(machine_config &config)
+{
+	megaavr_classic_base_device::device_add_mconfig(config);
+
+	// Timer 0 signals: OC0A = PD6, OC0B = PD5, T0 = PD4
+	m_timer_0->set_oc_a_w_cb( [] (uint8_t data)
+	{
+	});
+
+	m_timer_0->set_oc_a_toggle_w_cb( [] (uint8_t _)
+	{
+	});
+
+	m_timer_0->set_oc_a_w_cb( [] (uint8_t data)
+	{
+	});
+
+	m_timer_0->set_oc_b_toggle_w_cb( [] (uint8_t _)
+	{
+	});
+
+	// Timer 1 signals: OC1A = PB1, OC1B = PB2, T1 = PD5
+
+	// Timer 2 signals: OC2A = PB2, OC2B = PD3
+}
+
+// ATMegaxU4 series (ATMega16U4, ATMega32U4)
+void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
+{
+	// Timer 0 signals: OC0A = PB7, OC0B = PD0, T0 = PD7
+
+	// Timer 1 signals: OC1A = PB5, OC1B = PB6, T1 = PD6
+	
+	// Timer 3: OC3A = PC6
+
+	// Timer 4: OC4A = PC7, /OC4A = PC6,
+	//          OC4B = PB6, /OC4B = PB5,
+	//          OC4D = PD7, /OC4D = PD6
+}
+
+// ATMegax0 series (ATMega640, ATMega1280, ATMega2560)
+void atmegax0_base_device::device_add_mconfig(machine_config &config)
+{
+	// TODO
+}
+
+// ATMegax4 series (ATMega644, ATMega1284, ATMega2564)
+void atmegax4_base_device::device_add_mconfig(machine_config &config)
+{
+	// TODO
+}
+
+#endif
+
+//-------------------------------------------------
 //  memory_space_config - return the configuration
 //  of the CPU's address spaces
 //-------------------------------------------------
@@ -1362,6 +1497,17 @@ void avr8_base_device::update_interrupt(uint8_t intidx)
 	}
 }
 
+void avr8_base_device::set_interrupt_line(uint8_t intidx, uint8_t state)
+{
+	interrupt_condition condition = m_int_conditions_table[intidx];
+	if (!(0 <= condition.m_intidx && condition.m_intidx < INTIDX_COUNT))
+	{
+		fatalerror("tried to set/clear unmapped interrupt %d\n", intidx);
+	}
+
+	m_int_statuses[intidx] = state != 0;
+}
+
 void avr8_base_device::set_interrupt(uint8_t intidx)
 {
 	interrupt_condition condition = m_int_conditions_table[intidx];
@@ -1370,10 +1516,14 @@ void avr8_base_device::set_interrupt(uint8_t intidx)
 		fatalerror("tried to set unmapped interrupt %d\n", intidx);
 	}
 
-	m_r[condition.m_regindex] |= condition.m_regmask;
-	if (m_r[condition.m_intreg] & condition.m_intmask)
+	if (!condition.m_intondev)
 	{
-		m_int_statuses[intidx] = 1;
+		m_r[condition.m_regindex] |= condition.m_regmask;
+		set_interrupt_line(intidx, (m_r[condition.m_intreg] & condition.m_intmask) != 0);
+	}
+	else
+	{
+		logerror("attempt to set intidx %d when mapped to a device\n", intidx);
 	}
 }
 
@@ -1385,12 +1535,23 @@ void avr8_base_device::clear_interrupt(uint8_t intidx)
 		fatalerror("tried to clear unmapped interrupt %d\n", intidx);
 	}
 
-	// Clear event flag that raised the interrupt.
-	// This will either happen because the MCU took the interrupt (if interrupts on),
-	// or if the interrupt was manually acknowledged (if interrupts off).
-	m_r[condition.m_regindex] &= ~condition.m_regmask;
+	if (condition.m_intondev)
+	{
+		if (m_int_ack_cbs[intidx] == NULL)
+		{
+			fatalerror("intidx %d is mapped to a device, but no ack handler was installed\n");
+		}
+		m_int_ack_cbs[intidx](1);
+	}
+	else
+	{
+		// Clear event flag that raised the interrupt.
+		// This will either happen because the MCU took the interrupt (if interrupts on),
+		// or if the interrupt was manually acknowledged (if interrupts off).
+		m_r[condition.m_regindex] &= ~condition.m_regmask;
+	}
 
-	m_int_statuses[intidx] = 0;
+	set_interrupt_line(intidx, 0);
 }
 
 void avr8_base_device::fire_interrupts()
@@ -1492,6 +1653,7 @@ void avr8_base_device::populate_interrupt_condition_table()
 	{
 		// unwire all vectors by default
 		m_int_conditions_table[i].m_intidx = INTIDX_COUNT;
+		m_int_ack_cbs[i] = NULL; // actual interrupt acknowledge handler to be installed at device setup
 	}
 
 	for (int i = 0; !interrupt_condition_entry_is_terminator(int_conds[i]); i++)
