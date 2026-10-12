@@ -2,9 +2,14 @@
 // copyright-holders:Ryan Holtz, Sandro Ronco, Felipe Sanches, wurthless-elektroniks
 /****************************************************************************
 
-    AVR8-series timers
+    Classic AVR8 series timers
     Device-ified and modularized by würthless elektroniks
     With much love to all the avr8 core devs and maintainers
+
+    This covers the various timers present on the "classic" megaAVR and tinyAVR lineups.
+    The newer AVR8 chips use a completely different timer subsystem which will need
+    to go into a separate file, if we ever get to the point where we need to emulate the
+    newer chips.
 
     Design philosophy:
     -----------------------------------------------------------------
@@ -19,10 +24,10 @@
       is listening, that it's time to switch to another source.
       See AVR8_TIMER_SOURCE_xx enums.
 
-    Brief intro to the AVR8 timer subsytem:
+    Brief intro to the classic AVR8 timer subsytem:
     -----------------------------------------------------------------
 
-    Typically, AVR8s have the following kinds of timers: 8-bit low-precision,
+    Typically, the classic AVR8s have the following kinds of timers: 8-bit low-precision,
     16-bit high precision, and/or 10-bit high speed.
 
     | Series       | Timer 0 | Timer 1 | Timer 2 | Timer 3 | Timer 4 | Timer 5 |
