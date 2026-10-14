@@ -10,6 +10,7 @@
 
 #pragma once
 
+#include "avr8timers_classic.h"
 
 //**************************************************************************
 //  TYPE DEFINITIONS
@@ -1043,6 +1044,10 @@ protected:
 	// diffs a freshly-sampled port level against the last-known one, raising PCINT/INT0/INT1 as needed
 	template <int Port> void latch_pin_change(uint8_t state);
 
+	
+	template <int Port, int Bit> void toggle_gpio_bit(uint8_t _); // value written doesn't matter
+	template <int Port, int Bit> void set_gpio_bit(uint8_t data);
+	
 	// ADC
 	uint8_t adcl_r();
 	void adcl_w(uint8_t data);
@@ -1505,5 +1510,7 @@ enum : uint8_t
 	AVR8_SPH,
 	AVR8_SPL
 };
+
+
 
 #endif /* MAME_CPU_AVR8_AVR8_H */

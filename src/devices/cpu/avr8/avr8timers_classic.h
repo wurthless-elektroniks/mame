@@ -1,32 +1,28 @@
-#ifndef MAME_CPU_AVR8_AVR8TIMER_H
-#define MAME_CPU_AVR8_AVR8TIMER_H
+#ifndef MAME_CPU_AVR8_AVR8TIMERS_CLASSIC_H
+#define MAME_CPU_AVR8_AVR8TIMERS_CLASSIC_H
 
 #pragma once
 
-#include "emu.h"
-
-enum : uint32_t
+class avr8_base_timer_device : public device_t 
 {
-    AVR8_TIMER_COMPAREFLAGMASK_HAS_OCF_A = 0x00000001,
-    AVR8_TIMER_COMPAREFLAGMASK_HAS_OCF_B = 0x00000002,
-    AVR8_TIMER_COMPAREFLAGMASK_HAS_OCF_C = 0x00000004,
-    AVR8_TIMER_COMPAREFLAGMASK_HAS_OCF_D = 0x00000008,
-    AVR8_TIMER_COMPAREFLAGMASK_HAS_ICF   = 0x00000010,
-};
-
-class avr8_base_timer_device : device_t 
-{
+public:
     enum : uint8_t
     {
-        AVR8_TIMER_SOURCE_FCPU = 0, // timer clocked in sync with the CPU core
+        AVR8_TIMER_SOURCE_DISABLED, // timer is not clocked at all
 
-        AVR8_TIMER_EXTERNAL_LINE_FALLING_EDGE, // clock source switched by the timer
-        AVR8_TIMER_EXTERNAL_LINE_RISING_EDGE, // clock source switched by the timer
+        AVR8_TIMER_SOURCE_FCPU, // timer clocked in sync with the CPU core
+
+        AVR8_TIMER_SOURCE_PRESCALER_DIV8,       // clock from common prescaler CLK_DIV8
+        AVR8_TIMER_SOURCE_PRESCALER_DIV64,      // clock from common prescaler CLK_DIV64
+        AVR8_TIMER_SOURCE_PRESCALER_DIV256,     // clock from common prescaler CLK_DIV256
+        AVR8_TIMER_SOURCE_PRESCALER_DIV1024,    // clock from common prescaler CLK_DIV1024
+
+        AVR8_TIMER_TX_FALLING_EDGE, // clock from Tx pin, falling edge
+        AVR8_TIMER_TX_RISING_EDGE, //  clock from Tx pin, rising edge
 
         AVR8_TIMER_SOURCE_USB_PLL, // 16u4/32u4 PLL timer; clock source switched by the PLL controller
     };
 
-public:
 
     /**
      * Force-unmaps a given WGM mode, needed if the AVR8 variant
@@ -48,62 +44,95 @@ public:
     void toie_w(uint8_t data);
     uint8_t toie_r() { return m_toie; }
 
-    // OCFxA
+    // OCFxA, OCIExA
     void set_ocf_a_int_cb(devcb_write_line cb) { m_ocf_a_int_cb = cb; }
     void ocf_a_w(uint8_t data);
     void ocf_a_ack_w(uint8_t data) { m_ocf_a = false; }
     uint8_t ocf_a_r() { return m_ocf_a; }
-    void compare_a_irq_enable_w(uint8_t data);
-    uint8_t compare_a_irq_enable_r();
+    void ocie_a_w(uint8_t data);
+    uint8_t ocie_a_r();
     
-    // OCFxB
+    // OCFxB, OCIExB
     void set_ocf_b_int_cb(devcb_write_line cb) { m_ocf_b_int_cb = cb; }
     void ocf_b_w(uint8_t data);
     void ocf_b_ack_w(uint8_t data) { m_ocf_b = false; }
     uint8_t ocf_b_r() { return m_ocf_b; }
-    void compare_b_irq_enable_w(uint8_t data);
-    uint8_t compare_b_irq_enable_r();
-
+    void ocie_b_w(uint8_t data);
+    uint8_t ocie_b_r();
+    
     // OCFxC
     void set_ocf_c_int_cb(devcb_write_line cb) { m_ocf_c_int_cb = cb; }
     void ocf_c_w(uint8_t data);
     void ocf_c_ack_w(uint8_t data) { m_ocf_c = false; }
     uint8_t ocf_c_r() { return m_ocf_c; }
-    void compare_c_irq_enable_w(uint8_t data);
-    uint8_t compare_c_irq_enable_r();
+    void ocie_c_w(uint8_t data);
+    uint8_t ocie_c_r();
 
     // OCFxD
     void set_ocf_d_int_cb(devcb_write_line cb) { m_ocf_d_int_cb = cb; }
     void ocf_d_w(uint8_t data);
     void ocf_d_ack_w(uint8_t data) { m_ocf_c = false; }
     uint8_t ocf_d_r() { return m_ocf_c; }
-    void compare_d_irq_enable_w(uint8_t data);
-    uint8_t compare_d_irq_enable_r();
+    void ocie_d_w(uint8_t data);
+    uint8_t ocie_d_r();
 
     // ICF
     void icf_w(uint8_t data);
     uint8_t icf_r();
 
-    // generic register access/manipulation
 
+    /**
+     * Writes the PRTIMx value (1 = shutdown, 0 = run).
+     * 
+     * Typically, "shutdown" mode means the whole timer stops, but there are cases
+     * like with the fake RTC timer 2, where the timer will still run under certain
+     * conditions. See should_tick().
+     */
+    void prtim_w(uint8_t data);
+    uint8_t prtim_r();
+
+    // generic register access/manipulation
     uint16_t tcnt_internal_r();
     void tcnt_internal_w(uint16_t data);
 
     void wgm_w(uint8_t data);
+    uint8_t wgm_r(uint8_t data);
+
 
     /**
-     * Tick the timer, accounting for the prescaler values.
-     *
-     * Once the prescaler count hits 0, call on_prescale_expired(),
-     * then reload m_prescale_count with m_active_prescale_reload.
+     * Tick the timer, NOT accounting for prescaler values.
      * 
-     * The avr8timers.cpp core expects some other device to manage what
-     * clock source actually ticks the timer. Most of the time that will
+     * The timers all expect that some other device manages what
+     * clock source actually ticks it. Most of the time that will
      * be the CPU and timer ticking will be done in the main execution loop.
      */
     void tick();
 
+    /**
+     * Returns the last timer source set within this timer's internal context.
+     * This is to be used if some external clock source releases its control
+     * of the timer tick() function, and the timer itself has to restore its
+     * last configured timer source.
+     */
+    uint8_t get_last_timer_source() { return m_last_timer_source; }
+
+    /**
+     * Set callback to run when this timer internally switches its
+     * clock source. For example, writes to the CS0 bits in timer 0
+     * will fire the callback.
+     */
+    void set_timer_source_switch_cb(devcb_write8 cb) { m_timer_source_switch_cb = cb; }
+
+    /**
+     * Set value on Tx pin (e.g., T0, T1, etc.)
+     * If timer is configured to be clocked by this input, it responds appropriately.
+     * Default implementation does nothing.
+     */
+    virtual void t_w(uint8_t data) { }
+
 protected:
+	typedef delegate<void (void)> timer_func;
+
     // Timer count and prescaler values, MUST BE SAVESTATE-ABLE.
     uint32_t m_prescale_count;  // number of ticks left in prescale before count is advanced
     uint32_t m_tcnt;            // TCNT; active count. 32-bit internally to prevent calculation problems.
@@ -119,10 +148,13 @@ protected:
 
     uint8_t m_wgm; // WGM i.e., waveform generation mode (base timer mode)
 
+    uint8_t m_cs; // Clock select (enable/disable timer, prescaler select, switch clock input from CPU to others...)
+
     // COM i.e., compare/match output mode. setting these can override GPIOs
     uint8_t m_com_a;
     uint8_t m_com_b;
     uint8_t m_com_c;
+    uint8_t m_com_d;
 
     // Interrupt enables and interrupt flags, MUST BE SAVESTATE-ABLE.
     bool m_toie;  // TOIEx; overflow interrupt enable
@@ -139,6 +171,9 @@ protected:
     bool m_icie; // ICIE; input capture interrupt enable (if necessary)
     bool m_icf;
 
+    bool m_prtim; // PRTIMx bit; usually stops counting when true
+
+    uint8_t m_last_timer_source; // last AVR8_TIMER_SOURCE_xx value set internally by this timer
 
     // Interrupt callbacks; all write 1 to set interrupt pending and 0 to clear it.
     // When one of these are called, the core or whatever else implementing the callback
@@ -162,16 +197,24 @@ protected:
     devcb_write_line m_oc_c_toggle_w_cb; // OCxC toggle request
     devcb_write_line m_oc_d_toggle_w_cb; // OCxD toggle request
 
+
+    devcb_write8 m_timer_source_switch_cb; // TODO: probably shouldn't be devcb_write8
+
+    // Callback table that points a wgm value to the timer advance function
+    timer_func m_wgm_cbs[0x100];
+
+    void advance_illegal_wgm_state();
+
     // device-level overrides
 	virtual void device_start() override ATTR_COLD;
 	virtual void device_reset() override ATTR_COLD;
 
     // Generic counter update/compare functions.
-    // None of these trigger any side-effects that a timer might have.
-    inline uint32_t next_count() { return ((m_tcnt + 1) & ((1 << get_num_bits()) - 1)); }
-    inline void advance_count() { tcnt_internal_w(m_tcnt + 1); }
-    inline void reset_count() { tcnt_internal_w(0); }
-    inline bool will_count_overflow() { return tcnt_internal_r() != 0 && next_count() == 0; }
+    // It is guaranteed that calling these will have NO unexpected side effects.
+    inline uint32_t next_count() { return ((m_tcnt + 1) & ((1 << get_num_bits()) - 1)); } // compute next tcnt value (obeys wraparound)
+    inline void advance_count() { tcnt_internal_w(next_count()); } // set tcnt to next_count() (obeys wraparound)
+    inline void reset_count() { tcnt_internal_w(0); } // set tcnt to 0
+    inline bool will_count_overflow() { return tcnt_internal_r() != 0 && next_count() == 0; } // return true if tcnt will wrap
 
     inline bool is_compare_a() { return tcnt_internal_r() == m_ocr_a; }
     inline bool is_compare_b() { return tcnt_internal_r() == m_ocr_b; }
@@ -181,12 +224,10 @@ protected:
     inline bool will_compare_b() { return next_count() == m_ocr_b; }
     inline bool will_compare_c() { return next_count() == m_ocr_c; }
 
-    // WGM method callback install
-    virtual void install_wgm_callbacks() = 0;
 
-    // return AVR8_TIMER_COMPAREFLAGMASK_xx flags ORed together
-    // to indicate which OCxx registers will actually function
-    virtual uint32_t get_compareflagmask() const = 0;
+
+    // WGM callbacks install
+    virtual void install_wgm_callbacks() = 0;
 
     // return number of bits in this timer (8, 10, 16)
     virtual uint32_t get_num_bits() const = 0;
@@ -195,6 +236,13 @@ protected:
     // then sets the TOV interrupt flag upon wrap to zero.
     // This does not implement the OCxx toggles; subclasses must do that.
     virtual void advance_normal();
+
+    /**
+     * Return true if the timer should tick when tick() is called.
+     * Forced to be pure virtual so that subclass implementations pay attention to
+     * how the PRTIMx behavior actually works for that timer.
+     * */
+    virtual bool should_tick() = 0;
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -271,9 +319,21 @@ public:
 // TIMER IMPLEMENTATIONS
 //////////////////////////////////////////////////////////////////////////////////////////
 
-class avr8_generic_t0_timer_device : avr8_base_timer_device
+class avr8_generic_t0_timer_device : public avr8_base_timer_device
 {
 public:
+    enum : uint8_t
+    {
+        GENERIC_TIMER0_CS_DISABLED         = 0b000, // disable timer entirely
+        GENERIC_TIMER0_CS_DIRECT           = 0b001, // clock directly from clk i/o, bypassing the prescaler
+        GENERIC_TIMER0_CS_PRESCALE_DIV8    = 0b010, // clk/8 from prescaler
+        GENERIC_TIMER0_CS_PRESCALE_DIV64   = 0b011, // clk/64 from prescaler
+        GENERIC_TIMER0_CS_PRESCALE_DIV256  = 0b100, // clk/256 from prescaler
+        GENERIC_TIMER0_CS_PRESCALE_DIV1024 = 0b101, // clk/1024 from prescaler
+        GENERIC_TIMER0_CS_T0_FALL          = 0b110, // T0 pin, falling edge
+        GENERIC_TIMER0_CS_T0_RISE          = 0b111, // T0 pin, rising edge
+    };
+
     enum : uint8_t
     {
         /**
@@ -343,15 +403,21 @@ protected:
     void advance_fast_pwm(); // =GENERIC_TIMER0_WGM_FAST_PWM
     void advance_ctc();
     
-    void update_ctc_oc0a();
-    void update_ctc_oc0b();
+    void update_oc0a_normal_or_ctc();
+    void update_oc0b_normal_or_ctc();
+    
+    void update_oc0a_fast_pwm();
+    void update_oc0b_fast_pwm();
+
+    void force_oc0a();
+    void force_oc0b();
 
     virtual uint32_t get_num_bits() const override { return 8; }
-    virtual uint32_t get_compareflagmask() const override {
-        return AVR8_TIMER_COMPAREFLAGMASK_HAS_OCF_A | AVR8_TIMER_COMPAREFLAGMASK_HAS_OCF_B;
-    }
 
     virtual void advance_normal() override;
+    virtual bool should_tick() override;
+
+    void cs_w(uint8_t data);
 };
 
 
@@ -419,4 +485,49 @@ public:
 };
 #endif
 
-#endif // MAME_CPU_AVR8_AVR8TIMER_H
+/**
+ * Common 10-bit prescaler that is shared between different timers.
+ * It provides taps at /8, /64, /256 and /1024 counts.
+ * 
+ * The prescaler outputs will be pulsed (NOT held) on the same clock cycle that
+ * the timer division is satisfied. See the AVR8 documentation
+ * "Timer/Counter Timing Diagrams" section on how that works.
+ */
+class avr8_10bit_prescaler_device : public device_t 
+{
+public:
+    void set_clk8_w_cb(devcb_write_line cb) { m_clk8_w_cb = cb; }
+    void set_clk64_w_cb(devcb_write_line cb) { m_clk64_w_cb = cb; }
+    void set_clk256_w_cb(devcb_write_line cb) { m_clk256_w_cb = cb; }
+    void set_clk1024_w_cb(devcb_write_line cb) { m_clk1024_w_cb = cb; }
+
+    void set_psrasy_cb(devcb_write_line cb) { m_psrasy_w_cb = cb; }
+
+    void gtccr_w(uint8_t data);
+    
+    void tick();
+
+    // device-level overrides
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+
+protected:
+    // internal registers, MUST BE SAVESTATE-ABLE
+    uint16_t m_count;
+    bool m_tsm; // Timer Synchronization Mode; when set, the prescaler does not tick
+    bool m_psrasy; // Prescaler Reset Asynchronous; usually routed to timer 2
+    bool m_psrsync; // Prescaler reset, automatically clears to 0 when TSM not enabled
+
+    // Prescaler callbacks (ephemeral)
+    devcb_write_line m_clk8_w_cb;
+    devcb_write_line m_clk64_w_cb;
+    devcb_write_line m_clk256_w_cb;
+    devcb_write_line m_clk1024_w_cb;
+    devcb_write_line m_psrasy_w_cb;
+};
+
+// device type definition
+DECLARE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_0, avr8_generic_t0_timer_device)
+DECLARE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_TIMER_0, avr8_megaavr_timer_0_device)
+
+#endif // MAME_CPU_AVR8_AVR8TIMERS_CLASSIC_H
