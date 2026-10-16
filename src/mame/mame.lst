@@ -19887,6 +19887,7 @@ froggers
 froggers1
 froggers2
 froggers3
+froggers4
 froggert
 froggervd
 froggrs
@@ -21557,6 +21558,8 @@ skimaxx
 jnero
 specfrce
 specfrceo
+
+@source:ice/vp50.cpp
 rhnation
 zoofari
 
@@ -21692,6 +21695,7 @@ fb2010
 fb2010a
 feverch
 fevercha
+feverchb
 feverchtw
 feverchw4
 fl7_3121
@@ -30294,12 +30298,12 @@ arac6k33
 
 @source:misc/artmagic.cpp
 cheesech
-shtstar
 stonebal
 stonebal2
 stonebal2o
 ultennis
 ultennisj
+westerns
 
 @source:misc/astrafr.cpp
 as_acp
@@ -30770,11 +30774,14 @@ coolpool
 @source:misc/corona.cpp
 legrandc
 luckyrlt
+luckyrlta
+monte
 rcirulet
 re800ea
 re800v1
 re800v1a
 re800v3
+rula
 winner81
 winner81b
 winner81c
@@ -30883,7 +30890,7 @@ baibians
 btlfront
 cjmx
 crzclass
-ddz
+kxddz
 
 @source:misc/deecoseal.cpp
 deecoseal
@@ -32682,6 +32689,15 @@ fruitstbh
 fruitstbi
 goldnjkr
 goldnjkra
+
+@source:misc/mpu2000.cpp
+gw606
+gw603
+gw562
+gw558
+gw557
+gw552
+gw545
 
 @source:misc/mtu130.cpp
 mtu130
@@ -34708,6 +34724,7 @@ puzzball
 puzzballa
 sekaikh
 sekaikha
+shamisen
 slotouji
 slotoujia
 squizchs
@@ -35177,8 +35194,9 @@ pc9801vm
 pc9801vx
 
 @source:nec/pc9801_epson.cpp
-pc286vs
+pc286ls
 pc286u
+pc286vs
 pc386m
 pc386v
 pc486se
@@ -37717,6 +37735,7 @@ paranoia
 
 @source:pce/tourvis.cpp
 tourvis
+tourvisv1
 
 @source:pce/uapce.cpp
 aliencr
@@ -40424,6 +40443,10 @@ d550
 @source:roland/roland_d70.cpp
 d70
 
+@source:roland/roland_dep5.cpp
+dep5
+re3
+
 @source:roland/roland_jd800.cpp
 jd800
 
@@ -40771,11 +40794,16 @@ sandaha
 
 @source:sealy/sealy_z80.cpp
 bbddz
+ddz1
 ddz2
+ddz2a
 djddz
+djddza
+fkddzz80
 jzuanshi
+lucky168
 pljh
-xy168
+wakenz80
 
 @source:seequa/chameleon.cpp
 chameleon
@@ -43798,10 +43826,12 @@ anpanmct
 cmcwa
 cscaoysd
 dbzbgck
+dbzbgck10
 dchopper
 gkitarou
 gyakyu
 kghmytda
+pmsgk
 satoyama
 youkai
 yujogs
@@ -44116,6 +44146,9 @@ hazl1552
 
 @source:skeleton/hazl1420.cpp
 hazl1420
+
+@source:skeleton/highway_m68k.cpp
+tzfx
 
 @source:skeleton/hkcastle.cpp
 hkcastle
@@ -47284,7 +47317,7 @@ tmc1800
 tmc2000
 
 @source:telercas/tmc600.cpp
-tmc600s2
+tmc600
 
 @source:telercas/tmc2000e.cpp
 tmc2000e

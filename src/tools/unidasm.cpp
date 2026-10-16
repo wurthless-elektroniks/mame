@@ -45,6 +45,7 @@ using util::BIT;
 #include "cpu/ddp516/ddp516d.h"
 #include "cpu/dsp16/dsp16dis.h"
 #include "cpu/dsp32/dsp32dis.h"
+#include "cpu/dsp32/dsp3210dis.h"
 #include "cpu/dsp56000/dsp56000d.h"
 #include "cpu/dsp56156/dsp56dsm.h"
 #include "cpu/dsp563xx/dsp563xxd.h"
@@ -76,6 +77,7 @@ using util::BIT;
 #include "cpu/hphybrid/hphybrid_dasm.h"
 #include "cpu/ht1130/ht1130d.h"
 #include "cpu/i386/i386dasm.h"
+#include "cpu/i750/i750d.h"
 #include "cpu/i8008/8008dasm.h"
 #include "cpu/i8085/8085dasm.h"
 #include "cpu/i8089/i8089_dasm.h"
@@ -464,6 +466,7 @@ static const dasm_table_entry dasm_table[] =
 	{ "ds80c320",        le,  0, []() -> util::disasm_interface * { return new ds80c320_disassembler; } },
 	{ "dsp16",           le, -1, []() -> util::disasm_interface * { return new dsp16_disassembler; } },
 	{ "dsp32c",          le,  0, []() -> util::disasm_interface * { return new dsp32c_disassembler; } },
+	{ "dsp3210",         be,  0, []() -> util::disasm_interface * { return new dsp3210_disassembler; } },
 	{ "dsp56000",        be, -2, []() -> util::disasm_interface * { return new dsp56000_disassembler; } },
 	{ "dsp56156",        le, -1, []() -> util::disasm_interface * { return new dsp56156_disassembler; } },
 	{ "dsp563xx",        le, -2, []() -> util::disasm_interface * { return new dsp563xx_disassembler; } },
@@ -507,6 +510,7 @@ static const dasm_table_entry dasm_table[] =
 	{ "ht1130",          le,  0, []() -> util::disasm_interface * { return new ht1130_disassembler; } },
 	{ "i4004",           le,  0, []() -> util::disasm_interface * { return new i4004_disassembler; } },
 	{ "i4040",           le,  0, []() -> util::disasm_interface * { return new i4040_disassembler; } },
+	{ "i750",            le, -3, []() -> util::disasm_interface * { return new i750_disassembler; } },
 	{ "i8008",           le,  0, []() -> util::disasm_interface * { return new i8008_disassembler; } },
 	{ "i802x",           le,  0, []() -> util::disasm_interface * { return new mcs48_disassembler(false, true); } },
 	{ "i8051",           le,  0, []() -> util::disasm_interface * { return new i8051_disassembler; } },
