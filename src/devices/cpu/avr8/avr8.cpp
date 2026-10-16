@@ -24,8 +24,16 @@
 	Differences between the classic and modern AVR8s include:
 	- SPI programming interface on the classics, UPDI on the moderns
 	- Harvard architecture on the classics, unified memory architecture on the moderns
-	- Completely different timer scheme on the modern systems, including Timer A being
+	- Completely different timer scheme on the moderns, including Timer A being
 	  able to function as one 16-bit timer or two 8-bit timers
+
+	16-bit register accesses:
+	------------------------------------------------------------------
+
+	The datasheets specify that when accessing a 16-bit register, the right way to do this
+	is to read the lower 8 bits first. That latches the upper 8 bits in the "high" register
+	for some time, so that they can be read. The timing here is sensitive, though, so interrupts
+	are typically disabled.
 
 */
 
@@ -657,6 +665,9 @@ void avr8_device<NumTimers>::base_internal_map(address_map &map)
 
 void megaavr_classic_base_device::megaavr_base_internal_map(address_map &map)
 {
+	// Most classic megaAVRs use this map.
+	// The ATMega16 and ATMega32 map is more similar to the ATTinys.
+
 	// Map only the base register area.
 	// In the future everything in the I/O space will be a device.
 	// And, if any megaAVR device tries accessing a register that doesn't exist,
@@ -674,7 +685,6 @@ void megaavr_classic_base_device::megaavr_base_internal_map(address_map &map)
 	map(0x0047, 0x0047).rw(m_timer0, FUNC(megaavr_timer_0_device::ocr_a_r), FUNC(megaavr_timer_0_device::ocr_a_w_r));
 	map(0x0048, 0x0048).rw(m_timer0, FUNC(megaavr_timer_0_device::ocr_b_r), FUNC(megaavr_timer_0_device::ocr_b_w_r));
 	map(0x006e, 0x006e).rw(m_timer0, FUNC(megaavr_timer_0_device::timsk_r), FUNC(megaavr_timer_0_device::timsk_w));
- 
 }
 
 void atmegax8_base_device::atmegax8_base_internal_map(address_map &map)
@@ -706,7 +716,7 @@ void atmegax8_base_device::atmegax8_base_internal_map(address_map &map)
 	map(0x00b3, 0x00b3).rw(m_timer2, FUNC(avr8_fakertc_timer_device::ocr_a_r), FUNC(avr8_fakertc_timer_device::ocr_a_w));
 	map(0x00b4, 0x00b4).rw(m_timer2, FUNC(avr8_fakertc_timer_device::ocr_b_r), FUNC(avr8_fakertc_timer_device::ocr_b_w));
 
-	// cells 0x00c7-0x00ff are all unmapped
+	// cells 0x00c7-0x00ff all reserved
 }
 
 void atmega48_device::atmega48_device_internal_map(address_map &map)
@@ -757,9 +767,19 @@ void atmega32u4_device::atmega32u4_internal_map(address_map &map)
 	map(0x0100, 0x0aff).ram();
 }
 
+void atmegax4_base_device::atmegax4_base_internal_map(address_map &map)
+{
+	// Timers 0,1,2 same as ATMegax8
+}
+
+void atmegax4_base_device::atmega1284_2564_base_internal_map(address_map &map)
+{
+	// these have another 16-bit timer in Timer 3, so install it here
+
+	// extended flash space means z-pointer highbits register
+	// needs to be installed here
+}
 #endif
-
-
 
 void atmega88_device::atmega88_internal_map(address_map &map)
 {
@@ -1385,7 +1405,7 @@ void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
 	// Timer 0 basic implementation is the same across the classic megaAVR lineup,
 	// but signal routing differs. Each subclass device_add_mconfig() is responsible
 	// for routing them.
-	CLASSIC_MEGAAVR_TIMER_0(m_timer_0);
+	AVR8_CLASSIC_MEGAAVR_TIMER_0(m_timer_0);
 	m_timer_0->set_tov_int_cb(NAME([] (uint8_t data) { set_interrupt_line(INTIDX_TOV0, data); }));
 	m_timer_0->set_ocf_a_int_cb(NAME([] (uint8_t data) { set_interrupt_line(INTIDX_OCF0A, data); }));
 	m_timer_0->set_ocf_b_int_cb(NAME([] (uint8_t data) { set_interrupt_line(INTIDX_OCF0B, data); }));
@@ -1413,39 +1433,40 @@ void atmegax8_base_device::device_add_mconfig(machine_config &config)
 	m_timer_1->set_oc_b_toggle_w_cb(FUNC(atmegax8_base_device::toggle_gpio_bit<PORTB, 2>));
 	// TODO: T1
 
-	// connect timer 1 to the prescaler
-	m_10bit_prescaler->set_timer_1_tick_cb(FUNC(m_timer_1, atmegax8_base_device::tick));
+	// 10-bit prescaler feeds clk_io divisions to both timers 0 and 1 at the same time
+	AVR8_CLASSIC_10BIT_PRESCALER(m_timer_0_1_prescaler);
+	m_timer_0_1_prescaler->set_clk8_w_cb(NAME([] (uint8_t data)
+	{
+		m_timer_0->clk_div8_w(data);
+		m_timer_1->clk_div8_w(data);
+	}));
 
+	m_timer_0_1_prescaler->set_clk64_w_cb(NAME([] (uint8_t data)
+	{
+		m_timer_0->clk_div64_w(data);
+		m_timer_1->clk_div64_w(data);
+	}));
+
+	m_timer_0_1_prescaler->set_clk256_w_cb(NAME([] (uint8_t data)
+	{
+		m_timer_0->clk_div256_w(data);
+		m_timer_1->clk_div256_w(data);
+	}));
+
+	m_timer_0_1_prescaler->set_clk1024_w_cb(NAME([] (uint8_t data)
+	{
+		m_timer_0->clk_div1024_w(data);
+		m_timer_1->clk_div1024_w(data);
+	}));
+
+	
 	// Timer 2: 8-bit fake RTC
 	// Timer 2 signals: OC2A = PB2, OC2B = PD3
 	m_timer_2->set_oc_b_w_cb(FUNC(atmegax8_base_device::set_gpio_bit<PORTB, 2>));
 	m_timer_2->set_oc_b_toggle_w_cb(FUNC(atmegax8_base_device::toggle_gpio_bit<PORTB, 2>));
 	m_timer_2->set_oc_b_w_cb(FUNC(atmegax8_base_device::set_gpio_bit<PORTD, 3>));
 	m_timer_2->set_oc_b_toggle_w_cb(FUNC(atmegax8_base_device::toggle_gpio_bit<PORTD, 3>));
-	
-	// Timers 0/1 can be clocked through a common 10-bit prescaler, and the prescaler
-	// can send the PRSASY signal to timer 2 as well.
-	CLASSIC_AVR8_10BIT_PRESCALER(m_10bit_prescaler);
 
-	m_10bit_prescaler->set_div8_w_cb( NAME([] (uint8_t data) {
-		m_timer_0->clk_div8_w(data);
-		m_timer_1->clk_div8_w(data);
-	}));
-
-	m_10bit_prescaler->set_div64_w_cb( NAME([] (uint8_t data) {
-		m_timer_0->clk_div64_w(data);
-		m_timer_1->clk_div64_w(data);
-	}));
-
-	m_10bit_prescaler->set_div256_w_cb( NAME([] (uint8_t data) {
-		m_timer_0->clk_div256_w(data);
-		m_timer_1->clk_div256_w(data);
-	}));
-
-	m_10bit_prescaler->set_div1024_w_cb( NAME([] (uint8_t data) {
-		m_timer_0->clk_div1024_w(data);
-		m_timer_1->clk_div1024_w(data);
-	}));
 }
 
 // ATMegaxU4 series (ATMega16U4, ATMega32U4)
@@ -1464,7 +1485,8 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 	m_timer_1->set_oc_b_w_cb(FUNC(atmegaxu4_base_device::set_gpio_bit<PORTB, 6>));
 	m_timer_1->set_oc_b_toggle_w_cb(FUNC(atmegaxu4_base_device::toggle_gpio_bit<PORTB, 6>));
 
-	// Timer 3: OC3A = PC6
+.	// Timer 3: 16-bit similar to timer 1. Important difference is no Tx pin.
+	// Outputs: OC3A = PC6.
 	m_timer_3->set_oc_a_w_cb(FUNC(atmegaxu4_base_device::set_gpio_bit<PORTC, 6>));
 
 	// Timer 4: 10-bit highspeed, driven by PLL or FCPU
@@ -1491,7 +1513,35 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 
 	// The 10-bit prescaler can be routed to timers 0, 1, and 3, and it provides
 	// the /8, /64, /256 and /1024 taps similar to the ATMegax8 prescaler.
-	
+	AVR8_CLASSIC_10BIT_PRESCALER(m_timer_0_1_3_prescaler);
+	m_timer_0_1_3_prescaler->set_clk8_w_cb(NAME([] (uint8_t data)
+	{
+		m_timer_0->clk_div8_w(data);
+		m_timer_1->clk_div8_w(data);
+		m_timer_3->clk_div8_w(data);
+	}));
+
+	m_timer_0_1_3_prescaler->set_clk64_w_cb(NAME([] (uint8_t data)
+	{
+		m_timer_0->clk_div64_w(data);
+		m_timer_1->clk_div64_w(data);
+		m_timer_3->clk_div64_w(data);
+	}));
+
+	m_timer_0_1_3_prescaler->set_clk256_w_cb(NAME([] (uint8_t data)
+	{
+		m_timer_0->clk_div256_w(data);
+		m_timer_1->clk_div256_w(data);
+		m_timer_3->clk_div256_w(data);
+	}));
+
+	m_timer_0_1_3_prescaler->set_clk1024_w_cb(NAME([] (uint8_t data)
+	{
+		m_timer_0->clk_div1024_w(data);
+		m_timer_1->clk_div1024_w(data);
+		m_timer_3->clk_div1024_w(data);
+	}));
+
 }
 
 // ATMegax0 series (ATMega640, ATMega1280, ATMega2560)

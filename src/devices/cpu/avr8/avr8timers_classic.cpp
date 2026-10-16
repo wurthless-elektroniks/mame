@@ -4,10 +4,10 @@
 
     Classic AVR8 series timers
     Device-ified and modularized by würthless elektroniks
-    With much love to all the avr8 core devs and maintainers
+    With much love to all the AVR8 core devs and maintainers
 
     This covers the various timers present on the "classic" megaAVR and tinyAVR lineups.
-    The newer AVR8 chips use a completely different timer subsystem which will need
+    The modern AVR8 chips use a completely different timer subsystem which will need
     to go into a separate file, if we ever get to the point where we need to emulate the
     newer chips.
 
@@ -32,6 +32,9 @@
 
     | Series       | Timer 0 | Timer 1 | Timer 2 | Timer 3 | Timer 4 | Timer 5 |
     |--------------|---------|---------|---------|---------|---------|---------|
+    | ATMega 16,   | Generic | Generic | 8-bit   |  n/a    |   n/a   |   n/a   | 
+    | 32           | timer 0 | timer 1 | fakeRTC |         |         |         |
+    |--------------|---------|---------|---------|---------|---------|---------|
     | ATMega       | Generic | Generic | 8-bit   |  n/a    |   n/a   |   n/a   | 
     | 88, 168, 328 | timer 0 | timer 1 | fakeRTC |         |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
@@ -41,8 +44,11 @@
     | ATMega 640,  | Generic | 16-bit  | 8-bit   | 16-bit  | 16-bit  | 16-bit  |
     | 1280, 2560   | timer 0 | 3 ch.   | fakeRTC | 3 ch.   | 3 ch.   | 3 ch.   |
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATMega 644,  | Generic | Generic | 8-bit   |  n/a    |   n/a   |   n/a   | 
-    | 1284, 2564   | timer 0 | timer 1 | fakeRTC |         |         |         |
+    | ATMega 324,  | Generic | Generic | 8-bit   |  n/a    |   n/a   |   n/a   |
+    | 644          | timer 0 | timer 1 | fakeRTC |         |         |         |
+    |--------------|---------|---------|---------|---------|---------|---------|
+    | ATMega 1284, | Generic | Generic | 8-bit   | Generic |   n/a   |   n/a   | 
+    | 2564         | timer 0 | timer 1 | fakeRTC | timer 1 |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
     | ATTiny15     | Generic |  n/a    |  n/a    |  n/a    |  n/a    |  n/a    |
     |              | timer 0 |         |         |         |         |         |
@@ -51,24 +57,68 @@
     | 45, 85       | timer 0 | hispeed |         |         |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
 
-    - Generic timer 0 is a common 8-bit timer across the AVR8 family.
+    Types used:
+    - "Generic timer 0" is a common 8-bit timer across the classic AVR8s,
+      slotted into the Timer 0 position.
 
-    - Generic timer 1 is a high-precision 16-bit timer with two compare outputs.
+    - "Generic timer 1" is a high-precision 16-bit timer with two compare outputs,
+      but it also has an input comparator.
 
-    - The "fake RTC" timer can have its time source set either to the CPU clock,
-      but also to an external crystal, which is usually a 32.768 kHz crystal
-      for timekeeping.
+    - The "fake RTC" asynchronous timer can have its time source set either to the CPU clock,
+      but also to an external clock source, which is usually a 32.768 kHz crystal
+      for timekeeping. It still requires software intervention to update and
+      has no battery backing, so we can consider it to not be a "real" RTC.
 
     - The high-speed timers can be clocked by an on-chip PLL at many dozens
       of megahertz.
+
+    16-bit register accesses:
+    -----------------------------------------------------------------
+
+    Paraphrasing the common "Accessing 16-bit Registers" from the ATmega datasheets...
+
+    The 16-bit timer registers must be accessed atomically, so each 16-bit timer
+    device contains an 8-bit temporary register to help with this. And to complicate
+    our emulation, of course.
+
+    The temporary register is updated when the lower 8 bits of a 16-bit register
+    are read, or the upper 8 bits of a register are written. In both cases, the
+    temporary register gets the upper 8 bits of the value to be read or written
+    to the 16-bit register. Writes only take effect when the lower 8 bits are written.
+    
+    The datasheets therefore recommend that reads are done lower 8 bits followed by the
+    upper 8 bits, and writes be performed by writing the upper 8 bits first,
+    followed by the lower 8 bits. Interrupts also have to be disabled, as ISRs
+    can overwrite the contents of the temporary register and buggy behavior will result.
+
+    A bonus sideeffect of this temporary register is that you can latch the upper 8 bits
+    in that register, and then writes to the other 16-bit registers will reuse whatever
+    you put in the temporary register.
+
+    There are obviously exceptions to this behavior to add a few more headaches,
+    but those apply to the specific registers. In general, TCNTx will obey these
+    rules exactly.
 
 ****************************************************************************/
 
 #include "emu.h"
 #include "avr8timers_classic.h"
 
-DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_0, avr8_generic_t0_timer_device, "cavr8gent0", "Classic AVR8 Generic Timer 0")
-DEFINE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_TIMER_0, avr8_megaavr_timer_0_device,  "cmegaavrt0", "Classic megaAVR Timer 0")
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_0, avr8_generic_t0_timer_device, "cavr8gent0", "Classic AVR8 Generic Timer 0");
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_TIMER_0, avr8_megaavr_timer_0_device,  "cmegaavrt0", "Classic megaAVR Timer 0");
+
+
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_10BIT_PRESCALER, avr8_10bit_prescaler_device, "avr8presc", "Classic AVR8 10-bit prescaler");
+
+#if 0
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_1, avr8_megaavr_timer_1_device,  "cmegaavrt0", "Classic megaAVR Timer 1")
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_TIMER_1, avr8_megaavr_timer_1_device,  "cmegaavrt0", "Classic megaAVR Timer 1")
+
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_FAKERTC_TIMER, avr8_megaavr_fakertc_timer_device,  "cmegaavrt0", "Classic megaAVR fake RTC timer")
+
+
+
+#endif
 
 ///////////////////////////////////////////////////////////////
 // BASE TIMER
@@ -119,14 +169,6 @@ void avr8_base_timer_device::device_reset()
     m_ocf_d = false;
 
     m_prtim = false;
-}
-
-
-void avr8_base_timer_device::tick()
-{
-    if (!should_tick()) return;
-
-    m_wgm_cbs[m_wgm]();
 }
 
 void avr8_base_timer_device::toie_w(uint8_t data)
@@ -180,15 +222,45 @@ void avr8_base_timer_device::advance_normal()
 
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_10BIT_PRESCALER_DEVICE, avr8_10bit_prescaler_device, "avr10bpscl", "Classic AVR8 10-bit Prescaler")
 
+void avr8_10bit_prescaler_device::device_start()
+{
+    save_item(NAME(m_count));
+    save_item(NAME(m_tsm));
+    save_item(NAME(m_psrasy));
+    save_item(NAME(m_psrsync));
+}
+
+void avr8_10bit_prescaler_device::device_reset()
+{
+    m_count = 0;
+
+    // per GTCCR initial settings in datasheet
+    m_tsm = false;
+    m_psrasy = false;
+    m_psrsync = false;
+}
+
+
 void avr8_10bit_prescaler_device::tick()
 {
-    if (m_tsm) return;
+    if (m_tsm)
+    {
+        if (m_clk1024_w_cb) m_clk1024_w_cb(0); 
+        if (m_clk256_w_cb) m_clk256_w_cb(0); 
+        if (m_clk128_w_cb) m_clk128_w_cb(0); 
+        if (m_clk64_w_cb) m_clk64_w_cb(0); 
+        if (m_clk32_w_cb) m_clk32_w_cb(0); 
+        if (m_clk8_w_cb) m_clk8_w_cb(0);
+        return;
+    }
 
     int next_count = (m_count + 1) & 0x3ff;
 
-    if (m_clk1024_w_cb) m_clk1024_w_cb((next_count % 1024) == 0); 
-    if (m_clk256_w_cb) m_clk256_w_cb((next_count % 256) == 0); 
-    if (m_clk64_w_cb) m_clk64_w_cb((next_count % 64) == 0); 
+    if (m_clk1024_w_cb) m_clk1024_w_cb((next_count % 1024) == 0);
+    if (m_clk256_w_cb) m_clk256_w_cb((next_count % 256) == 0);
+    if (m_clk128_w_cb) m_clk128_w_cb((next_count % 128) == 0);
+    if (m_clk64_w_cb) m_clk64_w_cb((next_count % 64) == 0);
+    if (m_clk32_w_cb) m_clk32_w_cb((next_count % 32) == 0);
     if (m_clk8_w_cb) m_clk8_w_cb((next_count % 8) == 0);
 
     m_count = next_count;
@@ -234,10 +306,6 @@ void avr8_10bit_prescaler_device::gtccr_w(uint8_t data)
 // TIMER 0 COMMON
 ///////////////////////////////////////////////////////////////
 
-bool avr8_generic_t0_timer_device::should_tick()
-{
-    return !m_prtim;
-}
 
 void avr8_generic_t0_timer_device::install_wgm_callbacks()
 {
@@ -245,16 +313,42 @@ void avr8_generic_t0_timer_device::install_wgm_callbacks()
     m_wgm_cbs[GENERIC_TIMER0_WGM_FAST_PWM] = timer_func(&avr8_generic_t0_timer_device::advance_fast_pwm, this);
 }
 
+void avr8_generic_t0_timer_device::tick()
+{
+    if (m_prtim) return;
+
+    // Tx pin is sampled on every tick, so check that first
+    bool t_rising = false, t_falling = false;
+    if (m_t != m_t_last)
+    {
+        t_rising = !m_t_last && m_t;
+        t_falling = m_t_last && !m_t;
+        m_t = m_t_last;
+    }
+
+    if (m_cs == GENERIC_TIMER0_CS_DISABLED) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV8 && !m_div8) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV64 && !m_div64) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV256 && !m_div256) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV1024 && !m_div1024) return;
+    if (m_cs == GENERIC_TIMER0_CS_T0_FALL && !t_falling) return;
+    if (m_cs == GENERIC_TIMER0_CS_T0_RISE && !t_rising) return;
+    // GENERIC_TIMER0_CS_DIRECT = just fall through
+
+    m_wgm_cbs[m_wgm]();
+}
+
+
 void avr8_generic_t0_timer_device::advance_normal()
 {
     if (is_compare_a())
     {
-        update_ctc_oc0a();
+        update_oc0a_normal_or_ctc();
     }
 
     if (is_compare_b())
     {
-        update_ctc_oc0b();
+        update_oc0b_normal_or_ctc();
     }
 
     avr8_base_timer_device::advance_normal();
@@ -391,39 +485,28 @@ void avr8_generic_t0_timer_device::cs_w(uint8_t data)
 {
     if (data == m_cs) return;
 
+    // Switch timer source internally ONLY.
+    // Timer 0 will always run in sync with the I/O clock, even
+    // when switched to Tx pin triggers.
     m_cs = BIT(data, 0, 3);
-
-    // TODO: build this table as a const somewhere, while enforcing the indices correctly
-    uint8_t cs_to_clocksource_lut[0b1000];
-    cs_to_clocksource_lut[GENERIC_TIMER0_CS_DISABLED] = AVR8_TIMER_SOURCE_DISABLED;
-    cs_to_clocksource_lut[GENERIC_TIMER0_CS_DIRECT] = AVR8_TIMER_SOURCE_FCPU;
-    cs_to_clocksource_lut[GENERIC_TIMER0_CS_PRESCALE_DIV8] = AVR8_TIMER_SOURCE_PRESCALER_DIV8;
-    cs_to_clocksource_lut[GENERIC_TIMER0_CS_PRESCALE_DIV64] = AVR8_TIMER_SOURCE_PRESCALER_DIV64;
-    cs_to_clocksource_lut[GENERIC_TIMER0_CS_PRESCALE_DIV256] = AVR8_TIMER_SOURCE_PRESCALER_DIV256;
-    cs_to_clocksource_lut[GENERIC_TIMER0_CS_PRESCALE_DIV1024] = AVR8_TIMER_SOURCE_PRESCALER_DIV1024;
-    cs_to_clocksource_lut[GENERIC_TIMER0_CS_T0_FALL] = AVR8_TIMER_TX_FALLING_EDGE;
-    cs_to_clocksource_lut[GENERIC_TIMER0_CS_T0_RISE] = AVR8_TIMER_TX_RISING_EDGE;
-
-    if (m_timer_source_switch_cb)
-    {
-        m_timer_source_switch_cb(cs_to_clocksource_lut[m_cs]);
-    }
-    else
-    {
-        logerror("%s: attempt to switch timersource with no source switch cb installed (m_cs: %02x)\n",
-                 machine().describe_context(),
-                 m_cs);
-    }
 }
 
 ///////////////////////////////////////////////////////////////
 // GENERIC 16-BIT TIMER 1
 ///////////////////////////////////////////////////////////////
 
+#if 0
 
+void avr8_generic_t1_timer_device::device_add_mconfig(machine_config &config)
+{
+    avr8_base_timer_device::device_add_mconfig(config);
+
+}
+
+#endif
 
 ///////////////////////////////////////////////////////////////
-// FAKE RTC TIMER 2
+// FAKE RTC TIMER 2 (AND TIMER SOURCE CONTROLLER)
 ///////////////////////////////////////////////////////////////
 
 #if 0
