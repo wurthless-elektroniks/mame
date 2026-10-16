@@ -32,28 +32,28 @@
 
     | Series       | Timer 0 | Timer 1 | Timer 2 | Timer 3 | Timer 4 | Timer 5 |
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATMega 16,   | Generic | Generic | 8-bit   |  n/a    |   n/a   |   n/a   | 
+    | ATMega 16,   | Generic | Generic | 8-bit   |  n/a    |  n/a    |  n/a    | 
     | 32           | timer 0 | timer 1 | fakeRTC |         |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATMega       | Generic | Generic | 8-bit   |  n/a    |   n/a   |   n/a   | 
+    | ATMega       | Generic | Generic | 8-bit   |  n/a    |  n/a    |  n/a    | 
     | 88, 168, 328 | timer 0 | timer 1 | fakeRTC |         |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATMega       | Generic | Generic |  n/a    | 16-bit  | 10-bit  | n/a     |
+    | ATMega       | Generic | Generic |  n/a    | 16-bit  | 10-bit  |  n/a    |
     | 16U4, 32U4   | timer 0 | timer 1 |         |         | hispeed |         |
     |--------------|---------|---------|---------|---------|---------|---------|
     | ATMega 640,  | Generic | 16-bit  | 8-bit   | 16-bit  | 16-bit  | 16-bit  |
     | 1280, 2560   | timer 0 | 3 ch.   | fakeRTC | 3 ch.   | 3 ch.   | 3 ch.   |
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATMega 324,  | Generic | Generic | 8-bit   |  n/a    |   n/a   |   n/a   |
+    | ATMega 324,  | Generic | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |
     | 644          | timer 0 | timer 1 | fakeRTC |         |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATMega 1284, | Generic | Generic | 8-bit   | Generic |   n/a   |   n/a   | 
+    | ATMega 1284, | Generic | Generic | 8-bit   | Generic |  n/a    |  n/a    | 
     | 2564         | timer 0 | timer 1 | fakeRTC | timer 1 |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATTiny15     | Generic |  n/a    |  n/a    |  n/a    |  n/a    |  n/a    |
+    | ATTiny 15    | Generic |  n/a    |  n/a    |  n/a    |  n/a    |  n/a    |
     |              | timer 0 |         |         |         |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATTiny25,    | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |  n/a    |
+    | ATTiny 25,   | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |  n/a    |
     | 45, 85       | timer 0 | hispeed |         |         |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
 
@@ -61,11 +61,12 @@
     - "Generic timer 0" is a common 8-bit timer across the classic AVR8s,
       slotted into the Timer 0 position.
 
-    - "Generic timer 1" is a high-precision 16-bit timer with two compare outputs,
-      but it also has an input comparator.
-
-    - The "fake RTC" asynchronous timer can have its time source set either to the CPU clock,
-      but also to an external clock source, which is usually a 32.768 kHz crystal
+    - "Generic timer 1" is a high-precision 16-bit timer with two or three
+      comparator output channels and one comparator input channel.
+    
+    - The "fake RTC" asynchronous timer is another 8-bit timer. In synchronous
+      mode its prescaler will be clocked by the I/O clock, but it can also be
+      switched to an external clock source, which is usually a 32.768 kHz crystal
       for timekeeping. It still requires software intervention to update and
       has no battery backing, so we can consider it to not be a "real" RTC.
 
@@ -99,6 +100,15 @@
     but those apply to the specific registers. In general, TCNTx will obey these
     rules exactly.
 
+    Output compare modulator:
+    -----------------------------------------------------------------
+
+    - ATMega88, ATMega168, ATMega328: Not present. ATMega328PB has one.
+
+    - ATMega640, ATMega1280, ATMega2560: inputs on OC1C/OC0A, output to OC1C/OC0A/PB7 pin.
+
+    - ATMega16U4/ATMega32U4: inputs on OC1C/OC0A, output to OC1C/OC0A/PB7 pin.
+
 ****************************************************************************/
 
 #include "emu.h"
@@ -109,6 +119,7 @@ DEFINE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_TIMER_0, avr8_megaavr_timer_0_device,  "
 
 
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_10BIT_PRESCALER, avr8_10bit_prescaler_device, "avr8presc", "Classic AVR8 10-bit prescaler");
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_OUTPUT_COMPARE_MODULATOR, avr8_output_compare_modulator_device, "avr8ocm", "Classic AVR8 Output Compare Modulator");
 
 #if 0
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_1, avr8_megaavr_timer_1_device,  "cmegaavrt0", "Classic megaAVR Timer 1")
@@ -151,6 +162,7 @@ void avr8_base_timer_device::device_reset()
     m_ocr_d = 0;
 
     m_wgm = 0;
+    m_cs = 0;
 
     m_com_a = 0;
     m_com_b = 0;
@@ -214,47 +226,27 @@ void avr8_base_timer_device::advance_normal()
     advance_count();
 }
 
-
-
 ///////////////////////////////////////////////////////////////
 // COMMON 10-BIT PRESCALER
 ///////////////////////////////////////////////////////////////
 
-DEFINE_DEVICE_TYPE(AVR8_CLASSIC_10BIT_PRESCALER_DEVICE, avr8_10bit_prescaler_device, "avr10bpscl", "Classic AVR8 10-bit Prescaler")
-
 void avr8_10bit_prescaler_device::device_start()
 {
     save_item(NAME(m_count));
-    save_item(NAME(m_tsm));
-    save_item(NAME(m_psrasy));
-    save_item(NAME(m_psrsync));
+    save_item(NAME(m_sync));
 }
 
 void avr8_10bit_prescaler_device::device_reset()
 {
     m_count = 0;
-
-    // per GTCCR initial settings in datasheet
-    m_tsm = false;
-    m_psrasy = false;
-    m_psrsync = false;
+    m_sync = false;
 }
-
 
 void avr8_10bit_prescaler_device::tick()
 {
-    if (m_tsm)
-    {
-        if (m_clk1024_w_cb) m_clk1024_w_cb(0); 
-        if (m_clk256_w_cb) m_clk256_w_cb(0); 
-        if (m_clk128_w_cb) m_clk128_w_cb(0); 
-        if (m_clk64_w_cb) m_clk64_w_cb(0); 
-        if (m_clk32_w_cb) m_clk32_w_cb(0); 
-        if (m_clk8_w_cb) m_clk8_w_cb(0);
-        return;
-    }
-
-    int next_count = (m_count + 1) & 0x3ff;
+    // TODO: this is a guess; if the signals rise and stay risen
+    // then they should not cause the timers downstream to advance
+    int next_count = m_sync ? 0 : (m_count + 1) & 0x3ff;
 
     if (m_clk1024_w_cb) m_clk1024_w_cb((next_count % 1024) == 0);
     if (m_clk256_w_cb) m_clk256_w_cb((next_count % 256) == 0);
@@ -266,46 +258,188 @@ void avr8_10bit_prescaler_device::tick()
     m_count = next_count;
 }
 
-void avr8_10bit_prescaler_device::gtccr_w(uint8_t data)
+void avr8_10bit_prescaler_device::sync_w(uint8_t data)
 {
-    if (BIT(data, 7) && !m_tsm)
+    if (data != 0) m_count = 0;
+    m_sync = data != 0;
+}
+
+uint8_t avr8_10bit_prescaler_device::sync_r()
+{
+    return m_sync;
+}
+
+///////////////////////////////////////////////////////////////
+// TCCR A MIX-IN FUNCTIONS
+///////////////////////////////////////////////////////////////
+
+template <typename T,
+          int Wgm0Bit,
+          int Wgm1Bit,
+          int ComA0Bit,
+          int ComA1Bit,
+          int ComB0Bit,
+          int ComB1Bit,
+          int ComC0Bit,
+          int ComC1Bit>
+void avr8_megaavr_tccr_a_mixin::tccr_a_w(uint8_t data)
+{
+    if ((0 <= WgmBit1 && Wgm1Bit <= 7) || (0 <= WgmBit1 && Wgm1Bit <= 7))
     {
-        // entering TSM mode; stop counting
-        m_tsm = true;
-    }
-    else if (BIT(data, 7) == 0 && m_tsm)
-    {
-        // exiting TSM mode
-        m_tsm = false;
+        T::wgm_w((0 <= WgmBit1 && WgmBit1 <= 7 ? BIT(data, Wgm1Bit, 1) << 1 : 0) |
+                 (0 <= WgmBit0 && WgmBit0 <= 7 ? BIT(data, WgmBit0, 1) << 0 : 0));
     }
 
-    if (BIT(data, 0) && !m_psrsync)
+    if ((0 <= ComA1Bit && ComA1Bit <= 7) || (0 <= ComA0Bit && ComA0Bit <= 7))
     {
-        // PSRSYNC: reset shared count to 0
-        m_count = 0;
-        m_psrsync = true;
+        T::com_a_w((0 <= ComA1Bit && ComA1Bit <= 7 ? BIT(data, ComA1Bit, 1) << 1 : 0) |
+                   (0 <= ComA0Bit && ComA0Bit <= 7 ? BIT(data, ComA0Bit, 1) << 0 : 0));
     }
 
-    if (BIT(data, 1) && !m_psrasy)
+    if ((0 <= ComB1Bit && ComB1Bit <= 7) || (0 <= ComB0Bit && ComB0Bit <= 7))
     {
-        // PSRASY: signal reset to timer 2?
-        m_psrasy = true;
-        if (m_psrasy_w_cb) m_psrasy_w_cb(1);
+        T::com_b_w((0 <= ComB1Bit && ComB1Bit <= 7 ? BIT(data, ComB1Bit, 1) << 1 : 0) |
+                   (0 <= ComB0Bit && ComB0Bit <= 7 ? BIT(data, ComB0Bit, 1) << 0 : 0));
+    }
+    
+    if ((0 <= ComC1Bit && ComC1Bit <= 7) || (0 <= ComC0Bit && ComC0Bit <= 7))
+    {
+        T::com_c_w((0 <= ComC1Bit && ComC1Bit <= 7 ? BIT(data, ComC1Bit, 1) << 1 : 0) |
+                   (0 <= ComC0Bit && ComC0Bit <= 7 ? BIT(data, ComC0Bit, 1) << 0 : 0));
+    }
+}
+
+template <typename T,
+          int Wgm0Bit,
+          int Wgm1Bit,
+          int ComA0Bit,
+          int ComA1Bit,
+          int ComB0Bit,
+          int ComB1Bit,
+          int ComC0Bit,
+          int ComC1Bit>
+uint8_t avr8_megaavr_tccr_a_mixin::tccr_a_r(uint8_t data)
+{
+    uint8_t value = 0;
+
+    if ((0 <= WgmBit1 && Wgm1Bit <= 7) || (0 <= WgmBit1 && Wgm1Bit <= 7))
+    {
+        uint8_t wgm = T::wgm_r();
+        if (0 <= WgmBit1 && Wgm1Bit <= 7) value |= BIT(wgm, 1) << Wgm1Bit;
+        if (0 <= WgmBit0 && Wgm0Bit <= 7) value |= BIT(wgm, 0) << Wgm0Bit;
     }
 
-    if (!m_tsm)
+    if ((0 <= ComA1Bit && ComA1Bit <= 7) || (0 <= ComA0Bit && ComA0Bit <= 7))
     {
-        m_psrasy = false;
-        if (m_psrasy_w_cb) m_psrasy_w_cb(0);
-
-        m_psrsync = false;
+        uint8_t com_a = T::com_a_r();
+        if (0 <= ComA1Bit && ComA1Bit <= 7) value |= BIT(com_a, 1) << ComA1Bit;
+        if (0 <= ComA0Bit && ComA0Bit <= 7) value |= BIT(com_a, 0) << ComA0Bit;
     }
+
+    if ((0 <= ComB1Bit && ComB1Bit <= 7) || (0 <= ComB0Bit && ComB0Bit <= 7))
+    {
+        uint8_t com_b = T::com_b_r();
+
+        if (0 <= ComB1Bit && ComB1Bit <= 7) value |= BIT(com_b, 1) << ComB1Bit;
+        if (0 <= ComB0Bit && ComB0Bit <= 7) value |= BIT(com_b, 0) << ComB0Bit;
+    }
+    
+    if ((0 <= ComC1Bit && ComC1Bit <= 7) || (0 <= ComC0Bit && ComC0Bit <= 7))
+    {
+        uint8_t com_c = T::com_c_r();
+
+        if (0 <= ComC1Bit && ComB1Bit <= 7) value |= BIT(com_c, 1) << ComB1Bit;
+        if (0 <= ComB0Bit && ComB0Bit <= 7) value |= BIT(com_b, 0) << ComB0Bit;
+    }
+
+    return value;
+}
+
+///////////////////////////////////////////////////////////////
+// OUTPUT COMPARE MODULATOR
+///////////////////////////////////////////////////////////////
+
+void avr8_output_compare_modulator_device::device_start()
+{
+    save_item(NAME(m_compare_out_a));
+    save_item(NAME(m_compare_out_en_a));
+    save_item(NAME(m_compare_out_b));
+    save_item(NAME(m_compare_out_en_b));
+    save_item(NAME(m_port_bit));
+}
+
+void avr8_output_compare_modulator_device::device_reset()
+{
+    m_compare_out_a = false;
+    m_compare_out_en_a = false;
+    m_compare_out_b = false;
+    m_compare_out_en_b = false;
+    m_port_bit = false;
+}
+
+void avr8_output_compare_modulator_device::update_outputs()
+{
+    // passthrough mode: PORTx bit goes directly to GPIO output
+    // when both compare outputs disabled
+    if (!m_compare_out_en_a && !m_compare_out_en_b)
+    {
+        m_gpio_bit_w_wb(m_port_bit);
+        return;
+    }
+    
+    // modulation mode: if both compare outputs enabled,
+    // PORTx bit selects between AND modulation (=0) or
+    // OR modulation (=1)
+    if (m_compare_out_en_a && m_compare_out_en_b)
+    {
+        if (m_port_bit)
+        {
+            m_gpio_bit_w_wb(m_compare_out_a | m_compare_out_b);
+        }
+        else
+        {
+            m_gpio_bit_w_wb(m_compare_out_a & m_compare_out_b);
+        }
+        return;
+    }
+
+    if (m_compare_out_en_a) m_gpio_bit_w_wb(m_compare_out_a);
+    if (m_compare_out_en_b) m_gpio_bit_w_wb(m_compare_out_b);
+}
+
+void avr8_output_compare_modulator_device::compare_out_a_w(uint8_t data)
+{
+    m_compare_out_a = data != 0;
+    update_outputs();
+}
+
+void avr8_output_compare_modulator_device::compare_out_en_a(uint8_t data)
+{
+    m_compare_out_en_a = data != 0;
+    update_outputs();
+}
+
+void avr8_output_compare_modulator_device::compare_out_b_w(uint8_t data)
+{
+    m_compare_out_b = data != 0;
+    update_outputs();
+}
+
+void avr8_output_compare_modulator_device::compare_out_en_b(uint8_t data)
+{
+    m_compare_out_en_b = data != 0;
+    update_outputs();
+}
+
+void avr8_output_compare_modulator_device::port_bit_w(uint8_t data)
+{
+    m_port_bit = data != 0;
+    update_outputs();
 }
 
 ///////////////////////////////////////////////////////////////
 // TIMER 0 COMMON
 ///////////////////////////////////////////////////////////////
-
 
 void avr8_generic_t0_timer_device::install_wgm_callbacks()
 {

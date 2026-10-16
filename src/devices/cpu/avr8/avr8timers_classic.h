@@ -37,8 +37,7 @@ public:
     // set callbacks for OCxx line state changes, where applicable
     void set_oc_a_w_cb(devcb_write8 cb) { m_oc_a_w_cb = cb; }
     void set_oc_b_w_cb(devcb_write8 cb) { m_oc_b_w_cb = cb; }
-    void set_oc_c_w_cb(devcb_write8 cb) { m_oc_c_w_cb = cb; }
-    void set_oc_d_w_cb(devcb_write8 cb) { m_oc_d_w_cb = cb; }
+    void set_oc_c_w_cb(devcb_write8 cb) { m_oc_c_w_cb = cb; }    
 
     // TOV/TOIE: timer overflow interrupt, common to all timers
     void set_tov_int_cb(devcb_write_line cb) { m_tov_int_cb = cb; } // TOVx interrupt callback (can clear a pending interrupt)
@@ -64,7 +63,7 @@ public:
     void ocie_b_w(uint8_t data);
     uint8_t ocie_b_r();
     
-    // OCFxC
+    // OCFxC, OCIExC
     void set_ocf_c_int_cb(devcb_write_line cb) { m_ocf_c_int_cb = cb; }
     void ocf_c_w(uint8_t data);
     void ocf_c_ack_w(uint8_t data) { m_ocf_c = false; }
@@ -72,25 +71,16 @@ public:
     void ocie_c_w(uint8_t data);
     uint8_t ocie_c_r();
 
-    // OCFxD
-    void set_ocf_d_int_cb(devcb_write_line cb) { m_ocf_d_int_cb = cb; }
-    void ocf_d_w(uint8_t data);
-    void ocf_d_ack_w(uint8_t data) { m_ocf_c = false; }
-    uint8_t ocf_d_r() { return m_ocf_c; }
-    void ocie_d_w(uint8_t data);
-    uint8_t ocie_d_r();
-
     // ICF
     void icf_w(uint8_t data);
     uint8_t icf_r();
-
 
     /**
      * Writes the PRTIMx value (1 = shutdown, 0 = run).
      * 
      * Typically, "shutdown" mode means the whole timer stops, but there are cases
      * like with the fake RTC timer 2, where the timer will still run under certain
-     * conditions. See should_tick().
+     * conditions.
      */
     void prtim_w(uint8_t data);
     uint8_t prtim_r();
@@ -152,17 +142,15 @@ protected:
     uint16_t m_ocr_a;
     uint16_t m_ocr_b;
     uint16_t m_ocr_c;
-    uint16_t m_ocr_d;
 
     uint8_t m_wgm; // WGM i.e., waveform generation mode (base timer mode)
 
-    uint8_t m_cs; // Clock select (enable/disable timer, prescaler select, switch clock input from CPU to others...)
+    uint8_t m_cs; // Clock select (enable/disable timer, prescaler select, switch clock inputs...)
 
     // COM i.e., compare/match output mode. setting these can override GPIOs
     uint8_t m_com_a;
     uint8_t m_com_b;
     uint8_t m_com_c;
-    uint8_t m_com_d;
 
     // Interrupt enables and interrupt flags, MUST BE SAVESTATE-ABLE.
     bool m_toie;  // TOIEx; overflow interrupt enable
@@ -173,8 +161,6 @@ protected:
     bool m_ocf_b; // OCFxB; compare interrupt flag
     bool m_ocie_c; // OCIExC; compare interrupt enable
     bool m_ocf_c; // OCFxC; compare interrupt flag
-    bool m_ocie_d; // OCIExD; compare interrupt enable
-    bool m_ocf_d; // OCFxD; compare interrupt flag
     
     bool m_icie; // ICIE; input capture interrupt enable (if necessary)
     bool m_icf;
@@ -193,20 +179,23 @@ protected:
     devcb_write_line m_ocf_a_int_cb;
     devcb_write_line m_ocf_b_int_cb;
     devcb_write_line m_ocf_c_int_cb;
-    devcb_write_line m_ocf_d_int_cb;
+
+    // OCxx output callbacks when enabling/disabling the outputs
+    // so downstream GPIO drivers and other devices can react
+    devcb_write_line m_oc_a_en_w_cb; // OCxA enable output
+    devcb_write_line m_oc_b_en_w_cb; // OCxB enable output
+    devcb_write_line m_oc_c_en_w_cb; // OCxC enable output
 
     // OCxx output callbacks for modes where we can explicitly request an output value
     devcb_write_line m_oc_a_w_cb; // OCxA output
     devcb_write_line m_oc_b_w_cb; // OCxB output
     devcb_write_line m_oc_c_w_cb; // OCxC output
-    devcb_write_line m_oc_d_w_cb; // OCxD output
 
     // OCxx output callbacks for toggle modes; GPIO mux or something else must keep
     // track of the previous value for us. The value written to these is irrelevant.
     devcb_write_line m_oc_a_toggle_w_cb; // OCxA toggle request
     devcb_write_line m_oc_b_toggle_w_cb; // OCxB toggle request
     devcb_write_line m_oc_c_toggle_w_cb; // OCxC toggle request
-    devcb_write_line m_oc_d_toggle_w_cb; // OCxD toggle request
 
     devcb_write8 m_timer_source_switch_cb; // TODO: probably shouldn't be devcb_write8
 
@@ -522,8 +511,7 @@ protected:
     uint8_t m_temp; // temporary register for 16-bit accesses
     uint16_t m_ocr_a_buffer; // OCRxA reload value in PWM mode when timer hits TOP or BOTTOM
     uint16_t m_ocr_b_buffer; // OCRxB reload value in PWM mode when timer hits TOP or BOTTOM
-    uint16_t m_ocr_c_buffer; // OCRxA reload value in PWM mode when timer hits TOP or BOTTOM
-    uint16_t m_ocr_d_buffer; // OCRxB reload value in PWM mode when timer hits TOP or BOTTOM
+    uint16_t m_ocr_c_buffer; // OCRxC reload value in PWM mode when timer hits TOP or BOTTOM
 };
 #endif
 
@@ -598,8 +586,8 @@ public:
 /**
  * Common 10-bit prescaler implementation.
  * 
- * The prescaler for Timer 0 typically has taps at /8, /64, /256 and /1024.
- * It will always be clocked from CLK[i/o].
+ * The prescaler for Timer 0 typically has taps at /8, /64, /256 and /1024,
+ * and will always be clocked from CLK[i/o].
  * 
  * The prescaler for the fake RTC in Timer 2 has additional /32 and /128 taps.
  * 
@@ -616,15 +604,14 @@ public:
     void set_clk128_w_cb(devcb_write_line cb) { m_clk128_w_cb = cb; }
     void set_clk256_w_cb(devcb_write_line cb) { m_clk256_w_cb = cb; }
     void set_clk1024_w_cb(devcb_write_line cb) { m_clk1024_w_cb = cb; }
-
-    void set_psrasy_cb(devcb_write_line cb) { m_psrasy_w_cb = cb; }
-
-    void gtccr_w(uint8_t data);
     
     /**
      * Tick the prescaler from whatever clock source is feeding it.
      */
     void tick();
+
+    void sync_w(uint8_t data);
+    uint8_t sync_r();
 
     // device-level overrides
 	virtual void device_start() override ATTR_COLD;
@@ -633,10 +620,8 @@ public:
 protected:
     // internal registers, MUST BE SAVESTATE-ABLE
     uint16_t m_count;
-    bool m_tsm; // Timer Synchronization Mode; when set, the prescaler does not tick
-    bool m_psrasy; // Prescaler Reset Asynchronous; usually routed to timer 2
-    bool m_psrsync; // Prescaler reset, automatically clears to 0 when TSM not enabled
-
+    bool m_sync;
+    
     // Prescaler callbacks, to be installed during various device_add_mconfig phases
     devcb_write_line m_clk8_w_cb;
     devcb_write_line m_clk32_w_cb;
@@ -644,9 +629,45 @@ protected:
     devcb_write_line m_clk128_w_cb;
     devcb_write_line m_clk256_w_cb;
     devcb_write_line m_clk1024_w_cb;
-    devcb_write_line m_psrasy_w_cb;
 };
 
+/**
+ * Output Compare Modulator. Takes two outputs from timer comparators
+ * and sends them through to the GPIO port pin.
+ * If both outputs are enabled at the same time, the compare outputs
+ * will be modulated together based on the PORTx bit value (0 = AND modulate,
+ * 1 = OR modulate). At all other times it simply routes the PORTx bit
+ * straight to the output pin. In all cases the DDR setting on the receiving
+ * GPIO driver always applies.
+ */
+class avr8_output_compare_modulator_device : public device_t
+{
+public:
+    void set_gpio_bit_w_cb(devcb_write_line cb) { m_gpio_bit_w_wb = cb; }
+
+    void compare_out_a_w(uint8_t data); // OCxx from output compare unit
+    void compare_out_en_a(uint8_t data); // from output compare unit; 1 if COMxx != 0
+    void compare_out_b_w(uint8_t data); // OCxx from output compare unit
+    void compare_out_en_b(uint8_t data); // from output compare unit; 1 if COMxx != 0
+    
+    void port_bit_w(uint8_t data); // from PORTx bit
+
+    // device-level overrides
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+
+protected:
+    // internal bits, MUST BE SAVESTATE-ABLE
+    bool m_compare_out_a;
+    bool m_compare_out_en_a;
+    bool m_compare_out_b;
+    bool m_compare_out_en_b;
+    bool m_port_bit;
+
+    void update_outputs();
+
+    devcb_write_line m_gpio_bit_w_wb; // to GPIO output; the receiving GPIO must obey its DDR signal
+};
 
 #if 0
 
@@ -695,9 +716,11 @@ protected:
 
 #endif
 
-// device type definition
+// device type definitions
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_0, avr8_generic_t0_timer_device)
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_TIMER_0, avr8_megaavr_timer_0_device)
+
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_10BIT_PRESCALER, avr8_10bit_prescaler_device)
+DECLARE_DEVICE_TYPE(AVR8_CLASSIC_OUTPUT_COMPARE_MODULATOR, avr8_output_compare_modulator_device)
 
 #endif // MAME_CPU_AVR8_AVR8TIMERS_CLASSIC_H
