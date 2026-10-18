@@ -93,8 +93,8 @@
     can overwrite the contents of the temporary register and buggy behavior will result.
 
     A bonus sideeffect of this temporary register is that you can latch the upper 8 bits
-    in that register, and then writes to the other 16-bit registers will reuse whatever
-    you put in the temporary register.
+    in that register, and then writes to the lower halves of other 16-bit registers will
+    reuse whatever you put there.
 
     There are obviously exceptions to this behavior to add a few more headaches,
     but those apply to the specific registers. In general, TCNTx will obey these
@@ -137,9 +137,26 @@ DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_FAKERTC_TIMER, avr8_megaavr_fakertc_time
 
 void avr8_base_timer_device::device_start()
 {
-	save_item(NAME(m_toie));
-	save_item(NAME(m_tov));
-    // TODO: save all the things
+    save_item(NAME(m_tcnt));
+    save_item(NAME(m_ocr_a));
+    save_item(NAME(m_ocr_b));
+    save_item(NAME(m_ocr_c));
+    save_item(NAME(m_wgm));
+    save_item(NAME(m_cs));
+    save_item(NAME(m_com_a));
+    save_item(NAME(m_com_b));
+    save_item(NAME(m_com_c));
+    save_item(NAME(m_toie));
+    save_item(NAME(m_tov));
+    save_item(NAME(m_ocie_a));
+    save_item(NAME(m_ocf_a));
+    save_item(NAME(m_ocie_b));
+    save_item(NAME(m_ocf_b));
+    save_item(NAME(m_ocie_c));
+    save_item(NAME(m_ocf_c));
+    save_item(NAME(m_prtim));
+    save_item(NAME(m_t));
+    save_item(NAME(m_t_last));
 
     for (int i = 0; i < 0x100; i++)
     {
@@ -151,24 +168,15 @@ void avr8_base_timer_device::device_start()
 
 void avr8_base_timer_device::device_reset()
 {
-    m_prescale_count = 0xffff;
     m_tcnt = 0;
-    m_active_prescale_reload = 0;
-    m_prescale_reload = 0;
-    
     m_ocr_a = 0;
     m_ocr_b = 0;
     m_ocr_c = 0;
-    m_ocr_d = 0;
-
     m_wgm = 0;
     m_cs = 0;
-
-    m_com_a = 0;
-    m_com_b = 0;
-    m_com_c = 0;
-    m_com_d = 0;
-
+    m_com_a = AVR8_TIMER_COM_NORMAL;
+    m_com_b = AVR8_TIMER_COM_NORMAL;
+    m_com_c = AVR8_TIMER_COM_NORMAL;
     m_toie = false;
     m_tov = false;
     m_ocie_a = false;
@@ -177,10 +185,9 @@ void avr8_base_timer_device::device_reset()
     m_ocf_b = false;
     m_ocie_c = false;
     m_ocf_c = false;
-    m_ocie_d = false;
-    m_ocf_d = false;
-
     m_prtim = false;
+    m_t = false;
+    m_t_last = false;
 }
 
 void avr8_base_timer_device::toie_w(uint8_t data)
@@ -197,33 +204,62 @@ void avr8_base_timer_device::tov_w(uint8_t data)
     if (m_tov_int_cb) m_tov_int_cb(0);
 }
 
-uint16_t avr8_base_timer_device::tcnt_internal_r()
-{
-    return m_tcnt & ((1 << get_num_bits()) - 1);
-}
-
-void avr8_base_timer_device::tcnt_internal_w(uint16_t data)
-{
-    m_tcnt = data & ((1 << get_num_bits()) - 1);
-
-    // NOTE: Some timers will have special behavior when the
-    // TCNT value is updated. This is just a setter.
-}
-
 void avr8_base_timer_device::advance_illegal_wgm_state()
 {
-    logerror("%s: advance timer on illegal wgm state %02x\n", machine().describe_context(), m_wgm);
+    logerror("%s: advance timer on illegal/unimplemented wgm state %02x\n", machine().describe_context(), m_wgm);
 }
 
 void avr8_base_timer_device::advance_normal()
 {
-    if (will_count_overflow())
+    if (will_next_count_overflow())
     {
         m_tov = true;
         if(m_tov_int_cb) m_tov_int_cb(1);
+        m_tcnt = 0;
     }
+    else
+    {
+        m_tcnt = next_count();
+    }
+}
 
-    advance_count();
+void avr8_base_timer_device::com_a_w(uint8_t data)
+{
+    fatalerror("com_a_w unimplemented. Timer doesn't support it, or you found a bug.\n");
+}
+    
+void avr8_base_timer_device::com_b_w(uint8_t data)
+{
+    fatalerror("com_b_w unimplemented. Timer doesn't support it, or you found a bug.\n");
+}
+
+void avr8_base_timer_device::com_c_w(uint8_t data)
+{
+    fatalerror("com_c_w unimplemented. Timer doesn't support it, or you found a bug.\n");
+}
+
+void avr8_base_timer_device::raise_tov()
+{
+    m_tov = true;
+    if (m_toie && m_tov_int_cb) m_tov_int_cb(1);
+}
+
+void avr8_base_timer_device::raise_ocf_a()
+{
+    m_ocf_a = true;
+    if (m_ocie_a && m_ocf_a_int_cb) m_ocf_a_int_cb(1);
+}
+
+void avr8_base_timer_device::raise_ocf_b()
+{
+    m_ocf_b = true;
+    if (m_ocie_b && m_ocf_b_int_cb) m_ocf_b_int_cb(1);
+}
+
+void avr8_base_timer_device::raise_ocf_c()
+{
+    m_ocf_c = true;
+    if (m_ocie_c && m_ocf_c_int_cb) m_ocf_c_int_cb(1);
 }
 
 ///////////////////////////////////////////////////////////////
@@ -248,6 +284,8 @@ void avr8_10bit_prescaler_device::tick()
     // then they should not cause the timers downstream to advance
     int next_count = m_sync ? 0 : (m_count + 1) & 0x3ff;
 
+    // per the datasheets, these go high on the clock cycle the division
+    // is satisfied, and are low otherwise
     if (m_clk1024_w_cb) m_clk1024_w_cb((next_count % 1024) == 0);
     if (m_clk256_w_cb) m_clk256_w_cb((next_count % 256) == 0);
     if (m_clk128_w_cb) m_clk128_w_cb((next_count % 128) == 0);
@@ -261,6 +299,8 @@ void avr8_10bit_prescaler_device::tick()
 void avr8_10bit_prescaler_device::sync_w(uint8_t data)
 {
     if (data != 0) m_count = 0;
+
+    // remember: GTCCR and others can keep this signal asserted
     m_sync = data != 0;
 }
 
@@ -286,8 +326,10 @@ void avr8_megaavr_tccr_a_mixin::tccr_a_w(uint8_t data)
 {
     if ((0 <= WgmBit1 && Wgm1Bit <= 7) || (0 <= WgmBit1 && Wgm1Bit <= 7))
     {
-        T::wgm_w((0 <= WgmBit1 && WgmBit1 <= 7 ? BIT(data, Wgm1Bit, 1) << 1 : 0) |
-                 (0 <= WgmBit0 && WgmBit0 <= 7 ? BIT(data, WgmBit0, 1) << 0 : 0));
+        uint8_t wgm = T::wgm_r() & 0b1111_1100;
+        if (0 <= WgmBit1 && WgmBit1 <= 7) wgm |= BIT(data, Wgm1Bit, 1) << 1;
+        if (0 <= WgmBit0 && WgmBit0 <= 7) wgm |= BIT(data, Wgm0Bit, 1);
+        T::wgm_w(wgm);
     }
 
     if ((0 <= ComA1Bit && ComA1Bit <= 7) || (0 <= ComA0Bit && ComA0Bit <= 7))
@@ -324,7 +366,6 @@ uint8_t avr8_megaavr_tccr_a_mixin::tccr_a_r(uint8_t data)
 
     if ((0 <= WgmBit1 && Wgm1Bit <= 7) || (0 <= WgmBit1 && Wgm1Bit <= 7))
     {
-        uint8_t wgm = T::wgm_r();
         if (0 <= WgmBit1 && Wgm1Bit <= 7) value |= BIT(wgm, 1) << Wgm1Bit;
         if (0 <= WgmBit0 && Wgm0Bit <= 7) value |= BIT(wgm, 0) << Wgm0Bit;
     }
@@ -444,14 +485,17 @@ void avr8_output_compare_modulator_device::port_bit_w(uint8_t data)
 void avr8_generic_t0_timer_device::install_wgm_callbacks()
 {
     m_wgm_cbs[GENERIC_TIMER0_WGM_NORMAL] = timer_func(&avr8_generic_t0_timer_device::advance_normal, this);
+    m_wgm_cbs[GENERIC_TIMER0_WGM_CTC] = timer_func(&avr8_generic_t0_timer_device::advance_ctc, this);
+    m_wgm_cbs[GENERIC_TIMER0_WGM_PWM_BOTTOM] = timer_func(&avr8_generic_t0_timer_device::advance_pwm, this);
     m_wgm_cbs[GENERIC_TIMER0_WGM_FAST_PWM] = timer_func(&avr8_generic_t0_timer_device::advance_fast_pwm, this);
+    m_wgm_cbs[GENERIC_TIMER0_WGM_FAST_PWM_OCR0A] = timer_func(&avr8_generic_t0_timer_device::advance_fast_pwm_ocr0a, this);
 }
 
 void avr8_generic_t0_timer_device::tick()
 {
     if (m_prtim) return;
 
-    // Tx pin is sampled on every tick, so check that first
+    // Tx pin is sampled on every I/O clock, so check that first
     bool t_rising = false, t_falling = false;
     if (m_t != m_t_last)
     {
@@ -461,10 +505,10 @@ void avr8_generic_t0_timer_device::tick()
     }
 
     if (m_cs == GENERIC_TIMER0_CS_DISABLED) return;
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV8 && !m_div8) return;
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV64 && !m_div64) return;
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV256 && !m_div256) return;
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV1024 && !m_div1024) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV8 && !m_clk_div8) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV64 && !m_clk_div64) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV256 && !m_clk_div256) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV1024 && !m_clk_div1024) return;
     if (m_cs == GENERIC_TIMER0_CS_T0_FALL && !t_falling) return;
     if (m_cs == GENERIC_TIMER0_CS_T0_RISE && !t_rising) return;
     // GENERIC_TIMER0_CS_DIRECT = just fall through
@@ -472,16 +516,17 @@ void avr8_generic_t0_timer_device::tick()
     m_wgm_cbs[m_wgm]();
 }
 
-
 void avr8_generic_t0_timer_device::advance_normal()
 {
     if (is_compare_a())
     {
+        raise_ocf_a();
         update_oc0a_normal_or_ctc();
     }
 
     if (is_compare_b())
     {
+        raise_ocf_b();
         update_oc0b_normal_or_ctc();
     }
 
@@ -492,26 +537,127 @@ void avr8_generic_t0_timer_device::advance_ctc()
 {
     if (is_compare_a())
     {
-        m_ocf_a = true;
-
-        update_ctc_oc0a();
-        
-        if (m_ocf_a_int_cb) m_ocf_a_int_cb(1);
-        reset_count();
+        raise_ocf_a();
+        update_oc0a_normal_or_ctc();
+        m_tcnt = 0;
     }
     else if (is_compare_b())
     {
-        m_ocf_b = true;
-
-        update_ctc_oc0b();
+        raise_ocf_b();
+        update_oc0b_normal_or_ctc();
 
         if (m_ocf_b_int_cb) m_ocf_b_int_cb(1);
-        reset_count();
+        m_tcnt = 0;
     }
     else
     {
-        advance_count();
+        m_tcnt = next_count();
     }
+}
+
+void avr8_generic_t0_timer_device::advance_pwm()
+{
+    uint8_t next_count_value = m_dual_slope_counting_down ? prev_count() : next_count();
+    uint8_t count_limit = m_dual_slope_counting_down ? 0 : max_count();
+
+    if (next_count_value == m_ocr_a)
+    {
+        if (m_ocr_a != max_count())
+        {
+            m_ocf_a = true;
+            if (m_ocie_a && m_ocf_a_int_cb) m_ocf_a_int_cb(1);
+        }
+
+        if (m_dual_slope_counting_down)
+        {
+            // update_oc0a_pwm_on_downcount_compare();
+        }
+        else
+        {
+            // update_oc0a_pwm_on_upcount_compare();
+        }
+    }
+
+    if (next_count_value == m_ocr_b)
+    {
+        if (m_dual_slope_counting_down)
+        {
+            // update_oc0b_pwm_on_downcount_compare();
+        }
+        else
+        {
+            // update_oc0b_pwm_on_upcount_compare();
+        }
+    }
+
+    if (next_count_value == count_limit)
+    {
+        if (m_dual_slope_counting_down)
+        {
+            raise_tov();
+        }
+
+        m_dual_slope_counting_down = !m_dual_slope_counting_down;
+    }
+
+    m_tcnt = next_count_value;
+}
+
+void avr8_generic_t0_timer_device::advance_fast_pwm_ocr0a()
+{
+
+}
+
+void avr8_generic_t0_timer_device::advance_fast_pwm()
+{
+    if (will_compare_a() && !(BIT(m_com_a,1) && m_ocr_a == 0xff))
+    {
+        update_oc0a_fast_pwm_on_compare();
+    }
+    
+    if (will_compare_b() && !(BIT(m_com_b,1) && m_ocr_b == 0xff))
+    {
+        update_oc0b_fast_pwm_on_compare();
+    }
+
+    if (will_next_count_overflow())
+    {
+        raise_tov();
+
+        m_tcnt = 0;
+        return;
+    }
+
+    if (next_count() == 0xff)
+    {
+        update_oc0a_fast_pwm_on_top();
+        update_oc0b_fast_pwm_on_top();
+    }
+
+    m_tcnt = next_count();
+}
+
+void avr8_generic_t0_timer_device::advance_fast_pwm_ocr0a()
+{
+    if (will_compare_a())
+    {
+        // timer hitting TOP on this tick
+        update_oc0a_fast_pwm_on_top();
+        update_oc0b_fast_pwm_on_top();
+    }
+    else if (will_compare_b())
+    {
+        update_oc0b_fast_pwm_on_compare();
+    }
+    
+    if (m_tcnt >= m_ocr_a)
+    {
+        raise_tov();
+        m_tcnt = 0;
+        return;
+    }
+
+    m_tcnt = next_count();
 }
 
 void avr8_generic_t0_timer_device::update_oc0a_normal_or_ctc()
@@ -524,21 +670,21 @@ void avr8_generic_t0_timer_device::update_oc0a_normal_or_ctc()
 
     switch (m_com_a)
     {
-        case GENERIC_TIMER0_COM_TOGGLE:
+        case AVR8_TIMER_COM_TOGGLE:
             m_oc_a_toggle_w_cb(1);
             break;
 
-        case GENERIC_TIMER0_COM_CLEAR:
+        case AVR8_TIMER_COM_CLEAR:
             m_oc_a_w_cb(0);
             break;
         
-        case GENERIC_TIMER0_COM_SET:
+        case AVR8_TIMER_COM_SET:
             m_oc_a_w_cb(1);
             break;
 
-        case GENERIC_TIMER0_COM_NORMAL:
+        case AVR8_TIMER_COM_NORMAL:
         default:
-            // does nothing; OCxA pin disconnected
+            // does nothing; OCxB pin disconnected
             break;
     }
 }
@@ -553,67 +699,119 @@ void avr8_generic_t0_timer_device::update_oc0b_normal_or_ctc()
 
     switch (m_com_b)
     {
-        case GENERIC_TIMER0_COM_TOGGLE:
+        case AVR8_TIMER_COM_TOGGLE:
             m_oc_b_toggle_w_cb(1);
             break;
 
-        case GENERIC_TIMER0_COM_CLEAR:
+        case AVR8_TIMER_COM_CLEAR:
             m_oc_b_w_cb(0);
             break;
         
-        case GENERIC_TIMER0_COM_SET:
+        case AVR8_TIMER_COM_SET:
             m_oc_b_w_cb(1);
             break;
 
-        case GENERIC_TIMER0_COM_NORMAL:
+        case AVR8_TIMER_COM_NORMAL:
         default:
             // does nothing; OCxB pin disconnected
             break;
     }
 }
 
-void avr8_generic_t0_timer_device::update_oc0a_pwm()
+void avr8_generic_t0_timer_device::update_oc0a_fast_pwm_on_compare()
 {
+    switch (m_com_a)
+    {
+        case AVR8_TIMER_COM_TOGGLE:
+            // this is how the datasheets describe this behavior, so I'm replicating that here.
+            if (BIT(m_wgm, 2)) m_oc_a_toggle_w_cb(1);
+            break;
 
+        case AVR8_TIMER_COM_CLEAR:
+            m_oc_b_w_cb(0);
+            break;
+
+        case AVR8_TIMER_COM_SET:
+            m_oc_b_w_cb(1);
+            break;
+        
+        case AVR8_TIMER_COM_NORMAL:
+        default:
+            return;
+    };
 }
 
-
-void avr8_generic_t0_timer_device::advance_fast_pwm()
+void avr8_generic_t0_timer_device::update_oc0b_fast_pwm_on_compare()
 {
-    // TODO: the various OC0A/OC0B setting/clearing events
-    //
-    // for OC0A
-    // GENERIC_TIMER0_COM_TOGGLE = if WGM0 bit 2 cleared, ignore; if set, toggle OC0A on match
-    // GENERIC_TIMER0_COM_CLEAR = clear at compare, set at TOP
-    // GENERIC_TIMER0_COM_SET = set at compare, clear at TOP
-    // 
-    // for 0COB
-    // GENERIC_TIMER0_CTC_COM_TOGGLE = marked as reserved on 16u4/32u4, same on 328
-    // GENERIC_TIMER0_CTC_COM_CLEAR = clear at compare, set at TOP
-    // GENERIC_TIMER0_CTC_COM_SET = set at compare, clear at TOP
+    switch (m_com_b)
+    {
+        case AVR8_TIMER_COM_TOGGLE:
+            // marked as reserved on 16u4/32u4, same on 328
+            logerror("%s: com_b set to toggle in fast pwm mode\n", machine().describe_context());
+            break;
 
-    if (will_compare_a())
-    {
-        // update OCxA
-    }
-    if (will_compare_b())
-    {
-        // update OCxB
-    }
+        case AVR8_TIMER_COM_CLEAR:
+            m_oc_b_w_cb(0);
+            break;
 
-    if (will_count_overflow())
-    {
-        m_tov = true;
-        if (m_tov_int_cb) m_tov_int_cb(1);
-    }
-    else if (next_count() == 0xff)
-    {
-        // update OCxx flags since timer is at TOP
-    }
-
-    advance_count();
+        case AVR8_TIMER_COM_SET:
+            m_oc_b_w_cb(1);
+            break;
+        
+        case AVR8_TIMER_COM_NORMAL:
+        default:
+            return;
+    };
 }
 
+void avr8_generic_t0_timer_device::update_oc0a_fast_pwm_on_top()
+{
+    switch (m_com_a)
+    {
+        case AVR8_TIMER_COM_CLEAR:
+            m_oc_a_w_cb(1);
+            break;
+
+        case AVR8_TIMER_COM_SET:
+            m_oc_a_w_cb(0);
+            break;
+        
+        case AVR8_TIMER_COM_TOGGLE:
+        case AVR8_TIMER_COM_NORMAL:
+        default:
+            return;
+    };
+}
+
+void avr8_generic_t0_timer_device::com_a_w(uint8_t data)
+{
+    m_com_a = BIT(data, 0, 2);
+
+    if (m_com_a == AVR8_TIMER_COM_NORMAL)
+    {
+        if (m_oc_a_en_w_cb) m_oc_a_en_w_cb(0);
+        return;
+    }
+
+    // OC0A only changes upon compare; whatever I/O is latched
+    // downstream right now will (usually) not change.
+    if (m_oc_a_en_w_cb) m_oc_a_en_w_cb(1);
+}
+    
+void avr8_generic_t0_timer_device::com_b_w(uint8_t data)
+{
+    m_com_b = BIT(data, 0, 2);
+
+    if (m_com_b == AVR8_TIMER_COM_NORMAL)
+    {
+        if (m_oc_b_en_w_cb) m_oc_b_en_w_cb(0);
+        return;
+    }
+
+    if (m_oc_b_en_w_cb) m_oc_b_en_w_cb(1);
+    
+    // TODO: see above
+}
 
 void avr8_generic_t0_timer_device::cs_w(uint8_t data)
 {
@@ -623,6 +821,31 @@ void avr8_generic_t0_timer_device::cs_w(uint8_t data)
     // Timer 0 will always run in sync with the I/O clock, even
     // when switched to Tx pin triggers.
     m_cs = BIT(data, 0, 3);
+}
+
+void avr8_generic_t0_timer_device::wgm_w(uint8_t data)
+{
+    m_wgm = data;
+
+    switch (m_wgm)
+    {
+        case GENERIC_TIMER0_WGM_NORMAL:
+        case GENERIC_TIMER0_WGM_CTC:
+        case GENERIC_TIMER0_WGM_PWM_BOTTOM:
+        case GENERIC_TIMER0_WGM_PWM_OCR0A:
+        case GENERIC_TIMER0_WGM_FAST_PWM:
+        case GENERIC_TIMER0_WGM_FAST_PWM_OCR0A:
+            break;
+        
+        default:
+            logerror("%s: switched to illegal/reserved timer mode %02x\n", m_wgm);
+            break;
+    };
+}
+
+void avr8_generic_t0_timer_device::tcnt_w(uint8_t data)
+{
+    // CPU writes override any compare matches for the next clock cycle
 }
 
 ///////////////////////////////////////////////////////////////
