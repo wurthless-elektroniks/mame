@@ -17552,6 +17552,7 @@ prof181x
 
 @source:cosmo/cosmo_ls9310.cpp
 exfever
+exfevera
 
 @source:cosmo/pkscram.cpp
 pkscram
@@ -18460,6 +18461,7 @@ animaljrj
 animaljrs
 daichuka
 daichukaa
+daichukab
 daimyojn
 daireach
 ddenlovj
@@ -21286,6 +21288,9 @@ sc112
 sc116
 sc133
 sc203
+
+@source:homebrew/sbc6120.cpp
+sbc6120
 
 @source:homebrew/sbc6510.cpp
 sbc6510
@@ -33427,6 +33432,9 @@ quizoa
 quizpun
 quizpun2
 
+@source:misc/ramstar.cpp
+ramstar
+
 @source:misc/rawthrillspc.cpp
 doodljmp
 fnf
@@ -36276,6 +36284,7 @@ fatfurspb
 kinstsnes
 mk3snes
 snes4sl
+snes4sl94
 snes4sln
 
 @source:nintendo/spacefb.cpp
@@ -44500,9 +44509,6 @@ qmsirius
 
 @source:skeleton/qtsbc.cpp
 qtsbc
-
-@source:skeleton/ramstar.cpp
-ramstar
 
 @source:skeleton/rd100.cpp
 rd100
