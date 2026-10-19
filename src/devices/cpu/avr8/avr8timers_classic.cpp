@@ -135,6 +135,23 @@ DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_FAKERTC_TIMER, avr8_megaavr_fakertc_time
 // BASE TIMER
 ///////////////////////////////////////////////////////////////
 
+avr8_base_timer_device::avr8_base_timer_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock) :
+    device_t(mconfig, type, tag, owner, clock),
+    m_tov_int_cb(*this),
+    m_ocf_a_int_cb(*this),
+    m_ocf_b_int_cb(*this),
+    m_ocf_c_int_cb(*this),
+    m_oc_a_en_w_cb(*this),
+    m_oc_b_en_w_cb(*this),
+    m_oc_c_en_w_cb(*this),
+    m_oc_a_w_cb(*this),
+    m_oc_b_w_cb(*this),
+    m_oc_c_w_cb(*this),
+    m_oc_a_toggle_w_cb(*this),
+    m_oc_b_toggle_w_cb(*this),
+    m_oc_c_toggle_w_cb(*this)
+{}
+
 void avr8_base_timer_device::device_start()
 {
     save_item(NAME(m_tcnt));
@@ -160,7 +177,7 @@ void avr8_base_timer_device::device_start()
 
     for (int i = 0; i < 0x100; i++)
     {
-        m_wgm_cbs[i] = timer_func(&avr8_base_timer_device::advance_illegal_wgm_state, this);
+        m_wgm_cbs[i] = avr8_base_timer_device::timer_func(&avr8_base_timer_device::advance_illegal_wgm_state, this);
     }
 
     install_wgm_callbacks();
@@ -193,7 +210,7 @@ void avr8_base_timer_device::device_reset()
 void avr8_base_timer_device::toie_w(uint8_t data)
 {
     m_toie = data != 0;
-    if (m_tov_int_cb) m_tov_int_cb(m_toie != 0 && m_tov != 0);
+    if (!m_tov_int_cb.isunset()) m_tov_int_cb(m_toie != 0 && m_tov != 0);
 }
 
 void avr8_base_timer_device::tov_w(uint8_t data)
@@ -201,7 +218,7 @@ void avr8_base_timer_device::tov_w(uint8_t data)
     if (data == 0) return;
 
     m_tov = false;
-    if (m_tov_int_cb) m_tov_int_cb(0);
+    if (!m_tov_int_cb.isunset()) m_tov_int_cb(0);
 }
 
 void avr8_base_timer_device::advance_illegal_wgm_state()
@@ -213,8 +230,7 @@ void avr8_base_timer_device::advance_normal()
 {
     if (will_next_count_overflow())
     {
-        m_tov = true;
-        if(m_tov_int_cb) m_tov_int_cb(1);
+        raise_tov();
         m_tcnt = 0;
     }
     else
@@ -241,30 +257,40 @@ void avr8_base_timer_device::com_c_w(uint8_t data)
 void avr8_base_timer_device::raise_tov()
 {
     m_tov = true;
-    if (m_toie && m_tov_int_cb) m_tov_int_cb(1);
+    if (m_toie && !m_tov_int_cb.isunset()) m_tov_int_cb(1);
 }
 
 void avr8_base_timer_device::raise_ocf_a()
 {
     m_ocf_a = true;
-    if (m_ocie_a && m_ocf_a_int_cb) m_ocf_a_int_cb(1);
+    if (m_ocie_a && !m_ocf_a_int_cb.isunset()) m_ocf_a_int_cb(1);
 }
 
 void avr8_base_timer_device::raise_ocf_b()
 {
     m_ocf_b = true;
-    if (m_ocie_b && m_ocf_b_int_cb) m_ocf_b_int_cb(1);
+    if (m_ocie_b && !m_ocf_b_int_cb.isunset()) m_ocf_b_int_cb(1);
 }
 
 void avr8_base_timer_device::raise_ocf_c()
 {
     m_ocf_c = true;
-    if (m_ocie_c && m_ocf_c_int_cb) m_ocf_c_int_cb(1);
+    if (m_ocie_c && !m_ocf_c_int_cb.isunset()) m_ocf_c_int_cb(1);
 }
 
 ///////////////////////////////////////////////////////////////
 // COMMON 10-BIT PRESCALER
 ///////////////////////////////////////////////////////////////
+
+avr8_10bit_prescaler_device::avr8_10bit_prescaler_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+    device_t(mconfig, AVR8_CLASSIC_10BIT_PRESCALER, tag, owner, clock),
+    m_clk8_w_cb(*this),
+    m_clk32_w_cb(*this),
+    m_clk64_w_cb(*this),
+    m_clk128_w_cb(*this),
+    m_clk256_w_cb(*this),
+    m_clk1024_w_cb(*this)
+{}
 
 void avr8_10bit_prescaler_device::device_start()
 {
@@ -286,12 +312,12 @@ void avr8_10bit_prescaler_device::tick()
 
     // per the datasheets, these go high on the clock cycle the division
     // is satisfied, and are low otherwise
-    if (m_clk1024_w_cb) m_clk1024_w_cb((next_count % 1024) == 0);
-    if (m_clk256_w_cb) m_clk256_w_cb((next_count % 256) == 0);
-    if (m_clk128_w_cb) m_clk128_w_cb((next_count % 128) == 0);
-    if (m_clk64_w_cb) m_clk64_w_cb((next_count % 64) == 0);
-    if (m_clk32_w_cb) m_clk32_w_cb((next_count % 32) == 0);
-    if (m_clk8_w_cb) m_clk8_w_cb((next_count % 8) == 0);
+    if (!m_clk1024_w_cb.isunset()) m_clk1024_w_cb((next_count % 1024) == 0);
+    if (!m_clk256_w_cb.isunset()) m_clk256_w_cb((next_count % 256) == 0);
+    if (!m_clk128_w_cb.isunset()) m_clk128_w_cb((next_count % 128) == 0);
+    if (!m_clk64_w_cb.isunset()) m_clk64_w_cb((next_count % 64) == 0);
+    if (!m_clk32_w_cb.isunset()) m_clk32_w_cb((next_count % 32) == 0);
+    if (!m_clk8_w_cb.isunset()) m_clk8_w_cb((next_count % 8) == 0);
 
     m_count = next_count;
 }
@@ -322,13 +348,13 @@ template <typename T,
           int ComB1Bit,
           int ComC0Bit,
           int ComC1Bit>
-void avr8_megaavr_tccr_a_mixin::tccr_a_w(uint8_t data)
+void avr8_megaavr_tccr_a_mixin<T,Wgm0Bit,Wgm1Bit,ComA0Bit,ComA1Bit,ComB0Bit,ComB1Bit,ComC0Bit,ComC1Bit>::tccr_a_w(uint8_t data)
 {
-    if ((0 <= WgmBit1 && Wgm1Bit <= 7) || (0 <= WgmBit1 && Wgm1Bit <= 7))
+    if ((0 <= Wgm0Bit && Wgm0Bit <= 7) || (0 <= Wgm1Bit && Wgm1Bit <= 7))
     {
-        uint8_t wgm = T::wgm_r() & 0b1111_1100;
-        if (0 <= WgmBit1 && WgmBit1 <= 7) wgm |= BIT(data, Wgm1Bit, 1) << 1;
-        if (0 <= WgmBit0 && WgmBit0 <= 7) wgm |= BIT(data, Wgm0Bit, 1);
+        uint8_t wgm = T::wgm_r() & 0b11111100;
+        if (0 <= Wgm1Bit && Wgm1Bit <= 7) wgm |= BIT(data, Wgm1Bit, 1) << 1;
+        if (0 <= Wgm0Bit && Wgm0Bit <= 7) wgm |= BIT(data, Wgm0Bit, 1);
         T::wgm_w(wgm);
     }
 
@@ -360,14 +386,15 @@ template <typename T,
           int ComB1Bit,
           int ComC0Bit,
           int ComC1Bit>
-uint8_t avr8_megaavr_tccr_a_mixin::tccr_a_r(uint8_t data)
+uint8_t avr8_megaavr_tccr_a_mixin<T,Wgm0Bit,Wgm1Bit,ComA0Bit,ComA1Bit,ComB0Bit,ComB1Bit,ComC0Bit,ComC1Bit>::tccr_a_r(uint8_t data)
 {
     uint8_t value = 0;
 
-    if ((0 <= WgmBit1 && Wgm1Bit <= 7) || (0 <= WgmBit1 && Wgm1Bit <= 7))
+    if ((0 <= Wgm0Bit && Wgm0Bit <= 7) || (0 <= Wgm1Bit && Wgm1Bit <= 7))
     {
-        if (0 <= WgmBit1 && Wgm1Bit <= 7) value |= BIT(wgm, 1) << Wgm1Bit;
-        if (0 <= WgmBit0 && Wgm0Bit <= 7) value |= BIT(wgm, 0) << Wgm0Bit;
+        uint8_t wgm = T::wgm_r() & 0b11111100;
+        if (0 <= Wgm1Bit && Wgm1Bit <= 7) value |= BIT(wgm, 1) << Wgm1Bit;
+        if (0 <= Wgm0Bit && Wgm0Bit <= 7) value |= BIT(wgm, 0) << Wgm0Bit;
     }
 
     if ((0 <= ComA1Bit && ComA1Bit <= 7) || (0 <= ComA0Bit && ComA0Bit <= 7))
@@ -380,7 +407,6 @@ uint8_t avr8_megaavr_tccr_a_mixin::tccr_a_r(uint8_t data)
     if ((0 <= ComB1Bit && ComB1Bit <= 7) || (0 <= ComB0Bit && ComB0Bit <= 7))
     {
         uint8_t com_b = T::com_b_r();
-
         if (0 <= ComB1Bit && ComB1Bit <= 7) value |= BIT(com_b, 1) << ComB1Bit;
         if (0 <= ComB0Bit && ComB0Bit <= 7) value |= BIT(com_b, 0) << ComB0Bit;
     }
@@ -388,9 +414,8 @@ uint8_t avr8_megaavr_tccr_a_mixin::tccr_a_r(uint8_t data)
     if ((0 <= ComC1Bit && ComC1Bit <= 7) || (0 <= ComC0Bit && ComC0Bit <= 7))
     {
         uint8_t com_c = T::com_c_r();
-
         if (0 <= ComC1Bit && ComB1Bit <= 7) value |= BIT(com_c, 1) << ComB1Bit;
-        if (0 <= ComB0Bit && ComB0Bit <= 7) value |= BIT(com_b, 0) << ComB0Bit;
+        if (0 <= ComB0Bit && ComB0Bit <= 7) value |= BIT(com_c, 0) << ComB0Bit;
     }
 
     return value;
@@ -399,6 +424,11 @@ uint8_t avr8_megaavr_tccr_a_mixin::tccr_a_r(uint8_t data)
 ///////////////////////////////////////////////////////////////
 // OUTPUT COMPARE MODULATOR
 ///////////////////////////////////////////////////////////////
+
+avr8_output_compare_modulator_device::avr8_output_compare_modulator_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+    device_t(mconfig, AVR8_CLASSIC_OUTPUT_COMPARE_MODULATOR, tag, owner, clock),
+    m_gpio_bit_w_wb(*this)
+{ }
 
 void avr8_output_compare_modulator_device::device_start()
 {
@@ -482,6 +512,18 @@ void avr8_output_compare_modulator_device::port_bit_w(uint8_t data)
 // TIMER 0 COMMON
 ///////////////////////////////////////////////////////////////
 
+avr8_generic_t0_timer_device::avr8_generic_t0_timer_device(const machine_config &mconfig,
+    const char *tag,
+    device_t *owner,
+    uint32_t clock,
+    const device_type device_type = AVR8_CLASSIC_GENERIC_TIMER_0) :
+    avr8_base_timer_device(mconfig, device_type, tag, owner, clock)
+{ }
+
+avr8_megaavr_timer_0_device::avr8_megaavr_timer_0_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+    avr8_generic_t0_timer_device(mconfig, tag, owner, clock, AVR8_CLASSIC_MEGAAVR_TIMER_0)
+{ }
+
 void avr8_generic_t0_timer_device::install_wgm_callbacks()
 {
     m_wgm_cbs[GENERIC_TIMER0_WGM_NORMAL] = timer_func(&avr8_generic_t0_timer_device::advance_normal, this);
@@ -546,7 +588,7 @@ void avr8_generic_t0_timer_device::advance_ctc()
         raise_ocf_b();
         update_oc0b_normal_or_ctc();
 
-        if (m_ocf_b_int_cb) m_ocf_b_int_cb(1);
+        if (!m_ocf_b_int_cb.isunset()) m_ocf_b_int_cb(1);
         m_tcnt = 0;
     }
     else
@@ -564,8 +606,7 @@ void avr8_generic_t0_timer_device::advance_pwm()
     {
         if (m_ocr_a != max_count())
         {
-            m_ocf_a = true;
-            if (m_ocie_a && m_ocf_a_int_cb) m_ocf_a_int_cb(1);
+            raise_ocf_a();
         }
 
         if (m_dual_slope_counting_down)
@@ -601,11 +642,6 @@ void avr8_generic_t0_timer_device::advance_pwm()
     }
 
     m_tcnt = next_count_value;
-}
-
-void avr8_generic_t0_timer_device::advance_fast_pwm_ocr0a()
-{
-
 }
 
 void avr8_generic_t0_timer_device::advance_fast_pwm()
@@ -662,7 +698,7 @@ void avr8_generic_t0_timer_device::advance_fast_pwm_ocr0a()
 
 void avr8_generic_t0_timer_device::update_oc0a_normal_or_ctc()
 {
-    if (m_oc_a_w_cb == NULL || m_oc_a_toggle_w_cb == NULL)
+    if (m_oc_a_w_cb.isunset() || m_oc_a_toggle_w_cb.isunset())
     {
         logerror("update_ctc_oc0a() called when OC0A callbacks are not set\n");
         return;
@@ -691,7 +727,7 @@ void avr8_generic_t0_timer_device::update_oc0a_normal_or_ctc()
 
 void avr8_generic_t0_timer_device::update_oc0b_normal_or_ctc()
 {
-    if (m_oc_b_w_cb == NULL || m_oc_b_toggle_w_cb == NULL)
+    if (m_oc_b_w_cb.isunset() || m_oc_b_toggle_w_cb.isunset())
     {
         logerror("update_ctc_oc0b() called when OC0B callbacks are not set\n");
         return;
@@ -789,13 +825,13 @@ void avr8_generic_t0_timer_device::com_a_w(uint8_t data)
 
     if (m_com_a == AVR8_TIMER_COM_NORMAL)
     {
-        if (m_oc_a_en_w_cb) m_oc_a_en_w_cb(0);
+        if (!m_oc_a_en_w_cb.isunset()) m_oc_a_en_w_cb(0);
         return;
     }
 
     // OC0A only changes upon compare; whatever I/O is latched
     // downstream right now will (usually) not change.
-    if (m_oc_a_en_w_cb) m_oc_a_en_w_cb(1);
+    if (!m_oc_a_en_w_cb.isunset()) m_oc_a_en_w_cb(1);
 }
     
 void avr8_generic_t0_timer_device::com_b_w(uint8_t data)
@@ -804,11 +840,11 @@ void avr8_generic_t0_timer_device::com_b_w(uint8_t data)
 
     if (m_com_b == AVR8_TIMER_COM_NORMAL)
     {
-        if (m_oc_b_en_w_cb) m_oc_b_en_w_cb(0);
+        if (!m_oc_b_en_w_cb.isunset()) m_oc_b_en_w_cb(0);
         return;
     }
 
-    if (m_oc_b_en_w_cb) m_oc_b_en_w_cb(1);
+    if (!m_oc_b_en_w_cb.isunset()) m_oc_b_en_w_cb(1);
     
     // TODO: see above
 }
@@ -847,6 +883,8 @@ void avr8_generic_t0_timer_device::tcnt_w(uint8_t data)
 {
     // CPU writes override any compare matches for the next clock cycle
 }
+
+
 
 ///////////////////////////////////////////////////////////////
 // GENERIC 16-BIT TIMER 1

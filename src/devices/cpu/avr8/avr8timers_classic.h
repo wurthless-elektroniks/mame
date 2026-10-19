@@ -42,12 +42,12 @@ public:
     void unmap_wgm_mode(uint8_t which);
 
     // set callbacks for OCxx line state changes, where applicable
-    void set_oc_a_w_cb(devcb_write8 cb) { m_oc_a_w_cb = cb; }
-    void set_oc_b_w_cb(devcb_write8 cb) { m_oc_b_w_cb = cb; }
-    void set_oc_c_w_cb(devcb_write8 cb) { m_oc_c_w_cb = cb; }    
+    auto oc_a_w_cb() { m_oc_a_w_cb.bind(); }
+    auto oc_b_w_cb() { m_oc_b_w_cb.bind(); }
+    auto oc_c_w_cb() { m_oc_c_w_cb.bind(); }    
 
     // TOV/TOIE: timer overflow interrupt, common to all timers
-    void set_tov_int_cb(devcb_write_line cb) { m_tov_int_cb = cb; } // TOVx interrupt callback (can clear a pending interrupt)
+    auto tov_int_cb() { m_tov_int_cb.bind(); } // TOVx interrupt callback (can clear a pending interrupt)
     void tov_w(uint8_t data); // TOVx clear/acknowledge (when written by program)
     void tov_ack_w(uint8_t data) { m_tov = false; }; // TOVx clear/acknowledge (when AVR8 core takes the interrupt)
     uint8_t tov_r() { return m_tov; } // TOVx status
@@ -55,7 +55,7 @@ public:
     uint8_t toie_r() { return m_toie; }
 
     // OCFxA, OCIExA
-    void set_ocf_a_int_cb(devcb_write_line cb) { m_ocf_a_int_cb = cb; }
+    auto ocf_a_int_cb() { m_ocf_a_int_cb.bind(); }
     void ocf_a_w(uint8_t data);
     void ocf_a_ack_w(uint8_t data) { m_ocf_a = false; }
     uint8_t ocf_a_r() { return m_ocf_a; }
@@ -63,7 +63,7 @@ public:
     uint8_t ocie_a_r();
     
     // OCFxB, OCIExB
-    void set_ocf_b_int_cb(devcb_write_line cb) { m_ocf_b_int_cb = cb; }
+    auto ocf_b_int_cb() { m_ocf_b_int_cb.bind(); }
     void ocf_b_w(uint8_t data);
     void ocf_b_ack_w(uint8_t data) { m_ocf_b = false; }
     uint8_t ocf_b_r() { return m_ocf_b; }
@@ -71,7 +71,7 @@ public:
     uint8_t ocie_b_r();
     
     // OCFxC, OCIExC
-    void set_ocf_c_int_cb(devcb_write_line cb) { m_ocf_c_int_cb = cb; }
+    auto ocf_c_int_cb() { m_ocf_c_int_cb.bind(); }
     void ocf_c_w(uint8_t data);
     void ocf_c_ack_w(uint8_t data) { m_ocf_c = false; }
     uint8_t ocf_c_r() { return m_ocf_c; }
@@ -127,13 +127,6 @@ public:
     uint8_t get_last_timer_source() { return m_last_timer_source; }
 
     /**
-     * Set callback to run when this timer internally switches its
-     * clock source. For example, writes to the CS0 bits in timer 0
-     * will fire the callback.
-     */
-    void set_timer_source_switch_cb(devcb_write8 cb) { m_timer_source_switch_cb = cb; }
-
-    /**
      * Tick the timer for one clock cycle. The timer subclasses are responsible
      * for defining this logic.
      * 
@@ -148,6 +141,12 @@ public:
     uint8_t cs_r() { return m_cs; }
 
 protected:
+    avr8_base_timer_device(const machine_config &mconfig,
+					       const device_type type,
+                           const char *tag,
+                           device_t *owner,
+                           uint32_t clock) ATTR_COLD;
+
 	typedef delegate<void (void)> timer_func;
 
     // TCNT; active count. MUST BE SAVESTATE-ABLE.
@@ -219,10 +218,8 @@ protected:
     devcb_write_line m_oc_b_toggle_w_cb; // OCxB toggle request
     devcb_write_line m_oc_c_toggle_w_cb; // OCxC toggle request
 
-    devcb_write8 m_timer_source_switch_cb; // TODO: probably shouldn't be devcb_write8. even needed here?
-
     // Callback table that points a wgm value to the timer advance function
-    timer_func m_wgm_cbs[0x100];
+    avr8_base_timer_device::timer_func m_wgm_cbs[0x100];
 
     void advance_illegal_wgm_state();
 
@@ -277,14 +274,25 @@ template <typename T>
 class avr8_timer_prescaler_input_mixin
 {
 public:
+    void reset_prescaler_taps()
+    {
+        m_clk_div8 = false;
+        m_clk_div16 = false;
+        m_clk_div32 = false;
+        m_clk_div64 = false;
+        m_clk_div128 = false;
+        m_clk_div256 = false;
+        m_clk_div1024 = false;
+    }
+
     // taps from prescaler to the timer itself; not all will be used
-    void clk_div8_w(uint8_t data) { m_div8 = data != 0; }
-    void clk_div16_w(uint8_t data) { m_div16 = data != 0; }
-    void clk_div32_w(uint8_t data) { m_div32 = data != 0; }
-    void clk_div64_w(uint8_t data) { m_div64 = data != 0; }
-    void clk_div128_w(uint8_t data) { m_div128 = data != 0; }
-    void clk_div256_w(uint8_t data) { m_div256 = data != 0; }
-    void clk_div1024_w(uint8_t data) { m_div1024 = data != 0; }
+    void clk_div8_w(uint8_t data) { m_clk_div8 = data != 0; }
+    void clk_div16_w(uint8_t data) { m_clk_div16 = data != 0; }
+    void clk_div32_w(uint8_t data) { m_clk_div32 = data != 0; }
+    void clk_div64_w(uint8_t data) { m_clk_div64 = data != 0; }
+    void clk_div128_w(uint8_t data) { m_clk_div128 = data != 0; }
+    void clk_div256_w(uint8_t data) { m_clk_div256 = data != 0; }
+    void clk_div1024_w(uint8_t data) { m_clk_div1024 = data != 0; }
 
 protected:
     // MUST BE SAVESTATE-ABLE!
@@ -422,6 +430,13 @@ public:
     };
 
 public:
+    avr8_generic_t0_timer_device(const machine_config &mconfig,
+                                 const char *tag,
+                                 device_t *owner,
+                                 uint32_t clock,
+                                 const device_type device_type);
+
+
     virtual void tick() override;
 
     virtual void com_a_w(uint8_t data) override;
@@ -454,7 +469,7 @@ protected:
     
     virtual void wgm_w(uint8_t data) override;
 
-    void cs_w(uint8_t data);
+    void cs_w(uint8_t data) override;
 
     void tcnt_w(uint8_t data);
     uint8_t tcnt_r() { return m_tcnt & 0xff; }
@@ -469,11 +484,15 @@ protected:
  * nor does it apply to the tinyAVRs, because their TIFR and TIMSK registers
  * are mapped to more than one timer.
  */
-class avr8_megaavr_timer_0_device : avr8_generic_t0_timer_device,
+class avr8_megaavr_timer_0_device : public avr8_generic_t0_timer_device,
                                     avr8_megaavr_tifr_mixin<avr8_megaavr_timer_0_device, 0, 1, 2>,
                                     avr8_megaavr_tccr_a_mixin<avr8_megaavr_timer_0_device, 0, 1, 6, 7, 4, 5>
 {
 public:
+    avr8_megaavr_timer_0_device(const machine_config &mconfig,
+                                const char *tag,
+                                device_t *owner,
+                                uint32_t clock);                         
 };
 
 
@@ -624,12 +643,17 @@ public:
 class avr8_10bit_prescaler_device : public device_t 
 {
 public:
-    void set_clk8_w_cb(devcb_write_line cb) { m_clk8_w_cb = cb; }
-    void set_clk32_w_cb(devcb_write_line cb) { m_clk32_w_cb = cb; }
-    void set_clk64_w_cb(devcb_write_line cb) { m_clk64_w_cb = cb; }
-    void set_clk128_w_cb(devcb_write_line cb) { m_clk128_w_cb = cb; }
-    void set_clk256_w_cb(devcb_write_line cb) { m_clk256_w_cb = cb; }
-    void set_clk1024_w_cb(devcb_write_line cb) { m_clk1024_w_cb = cb; }
+    avr8_10bit_prescaler_device(const machine_config &mconfig,
+                                const char *tag,
+                                device_t *owner,
+                                uint32_t clock) ATTR_COLD;
+
+    auto clk8_w_cb() { m_clk8_w_cb.bind(); }
+    auto clk32_w_cb() { m_clk32_w_cb.bind(); }
+    auto clk64_w_cb() { m_clk64_w_cb.bind(); }
+    auto clk128_w_cb() { m_clk128_w_cb.bind(); }
+    auto clk256_w_cb() { m_clk256_w_cb.bind(); }
+    auto clk1024_w_cb() { m_clk1024_w_cb.bind(); }
     
     /**
      * Tick the prescaler from whatever clock source is feeding it.
@@ -669,7 +693,12 @@ protected:
 class avr8_output_compare_modulator_device : public device_t
 {
 public:
-    void set_gpio_bit_w_cb(devcb_write_line cb) { m_gpio_bit_w_wb = cb; }
+    avr8_output_compare_modulator_device(const machine_config &mconfig,
+                                         const char *tag,
+                                         device_t *owner,
+                                         uint32_t clock);
+
+    auto gpio_bit_w_cb() { m_gpio_bit_w_wb.bind(); }
 
     void compare_out_a_w(uint8_t data); // OCxx from output compare unit
     void compare_out_en_a(uint8_t data); // from output compare unit; 1 if COMxx != 0

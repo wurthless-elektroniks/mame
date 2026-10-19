@@ -788,7 +788,7 @@ protected:
 
 	// Interrupt handling tables
 	uint8_t m_int_statuses[INTIDX_COUNT];   // persistent, must be savestate-able
-	devcb_write_line::array<INTIDX_COUNT> m_int_ack_cbs; // rebuilt at device_start
+	// devcb_write_line m_int_ack_cbs[INTIDX_COUNT]; // rebuilt at device_start
 	std::unique_ptr<interrupt_condition[]> m_int_conditions_table; // rebuilt at device_start
 
 	// Interrupt handling size for the AVR8s is usually 2; some devices will only use 1

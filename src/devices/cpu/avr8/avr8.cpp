@@ -1716,11 +1716,14 @@ void avr8_base_device::clear_interrupt(uint8_t intidx)
 
 	if (condition.m_intondev)
 	{
+		fatalerror("code path disabled for development...\n");
+#if 0
 		if (m_int_ack_cbs[intidx] == NULL)
 		{
 			fatalerror("intidx %d is mapped to a device, but no ack handler was installed\n");
 		}
 		m_int_ack_cbs[intidx](1);
+#endif
 	}
 	else
 	{
@@ -1832,7 +1835,7 @@ void avr8_base_device::populate_interrupt_condition_table()
 	{
 		// unwire all vectors by default
 		m_int_conditions_table[i].m_intidx = INTIDX_COUNT;
-		m_int_ack_cbs[i] = NULL; // actual interrupt acknowledge handler to be installed at device setup
+		// m_int_ack_cbs[i] = NULL; // actual interrupt acknowledge handler to be installed at device setup
 	}
 
 	for (int i = 0; !interrupt_condition_entry_is_terminator(int_conds[i]); i++)
@@ -3463,7 +3466,7 @@ void avr8_device<NumTimers>::latch_pin_change(uint8_t state)
 
 template<int NumTimers>
 template<int Port, int Bit>
-void avr8_device<NumTimers>::set_gpio_bit(uint8 data)
+void avr8_device<NumTimers>::set_gpio_bit(uint8_t data)
 {
 	if (data)
 		m_r[Port] |= 1 << Bit;
