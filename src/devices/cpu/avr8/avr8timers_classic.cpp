@@ -611,11 +611,11 @@ void avr8_generic_t0_timer_device::advance_pwm()
 
         if (m_dual_slope_counting_down)
         {
-            // update_oc0a_pwm_on_downcount_compare();
+            update_oc0a_pwm_on_downcount_compare();
         }
         else
         {
-            // update_oc0a_pwm_on_upcount_compare();
+            update_oc0a_pwm_on_upcount_compare();
         }
     }
 
@@ -623,15 +623,65 @@ void avr8_generic_t0_timer_device::advance_pwm()
     {
         if (m_dual_slope_counting_down)
         {
-            // update_oc0b_pwm_on_downcount_compare();
+            update_oc0b_pwm_on_downcount_compare();
         }
         else
         {
-            // update_oc0b_pwm_on_upcount_compare();
+            update_oc0b_pwm_on_upcount_compare();
         }
     }
 
     if (next_count_value == count_limit)
+    {
+        if (m_dual_slope_counting_down)
+        {
+            raise_tov();
+        }
+
+        m_dual_slope_counting_down = !m_dual_slope_counting_down;
+    }
+
+    m_tcnt = next_count_value;
+}
+
+void avr8_generic_t0_timer_device::advance_pwm_ocr0a()
+{
+    uint8_t next_count_value = m_dual_slope_counting_down ? prev_count() : next_count();
+    uint8_t count_limit = m_dual_slope_counting_down ? 0 : m_ocr_a;
+
+    if (next_count_value == m_ocr_a)
+    {
+        
+        if (m_ocr_a != max_count())
+        {
+            raise_ocf_a();
+        }
+
+        if (m_dual_slope_counting_down)
+        {
+            update_oc0a_pwm_on_downcount_compare();
+        }
+        else
+        {
+            // timer hitting TOP on this tick
+            update_oc0a_pwm_on_upcount_compare();
+            m_dual_slope_counting_down = !m_dual_slope_counting_down;
+        }
+    }
+
+    if (next_count_value == m_ocr_b)
+    {
+        if (m_dual_slope_counting_down)
+        {
+            update_oc0b_pwm_on_downcount_compare();
+        }
+        else
+        {
+            update_oc0b_pwm_on_upcount_compare();
+        }
+    }
+
+    if (m_dual_slope_counting_down && next_count_value == 0)
     {
         if (m_dual_slope_counting_down)
         {
@@ -819,6 +869,82 @@ void avr8_generic_t0_timer_device::update_oc0a_fast_pwm_on_top()
     };
 }
 
+void avr8_generic_t0_timer_device::update_oc0a_pwm_on_upcount_compare()
+{
+    switch (m_com_a)
+    {
+        case AVR8_TIMER_COM_CLEAR:
+            break;
+
+        case AVR8_TIMER_COM_SET:
+            break;
+        
+        case AVR8_TIMER_COM_TOGGLE:
+            break;
+
+        case AVR8_TIMER_COM_NORMAL:
+        default:
+            return;
+    };
+}
+
+void avr8_generic_t0_timer_device::update_oc0a_pwm_on_downcount_compare()
+{
+    switch (m_com_a)
+    {
+        case AVR8_TIMER_COM_CLEAR:
+            break;
+
+        case AVR8_TIMER_COM_SET:
+            break;
+        
+        case AVR8_TIMER_COM_TOGGLE:
+            break;
+            
+        case AVR8_TIMER_COM_NORMAL:
+        default:
+            return;
+    };
+}
+
+void avr8_generic_t0_timer_device::update_oc0b_pwm_on_upcount_compare()
+{
+    switch (m_com_b)
+    {
+        case AVR8_TIMER_COM_CLEAR:
+            break;
+
+        case AVR8_TIMER_COM_SET:
+            break;
+        
+        case AVR8_TIMER_COM_TOGGLE:
+            break;
+            
+        case AVR8_TIMER_COM_NORMAL:
+        default:
+            return;
+    };
+}
+
+void avr8_generic_t0_timer_device::update_oc0b_pwm_on_downcount_compare()
+{
+    switch (m_com_b)
+    {
+        case AVR8_TIMER_COM_CLEAR:
+            break;
+
+        case AVR8_TIMER_COM_SET:
+            break;
+        
+        case AVR8_TIMER_COM_TOGGLE:
+            break;
+            
+        case AVR8_TIMER_COM_NORMAL:
+        default:
+            return;
+    };
+}
+
 void avr8_generic_t0_timer_device::com_a_w(uint8_t data)
 {
     m_com_a = BIT(data, 0, 2);
@@ -861,18 +987,24 @@ void avr8_generic_t0_timer_device::cs_w(uint8_t data)
 
 void avr8_generic_t0_timer_device::wgm_w(uint8_t data)
 {
+    if (m_wgm == data) return;
+
     m_wgm = data;
 
     switch (m_wgm)
     {
         case GENERIC_TIMER0_WGM_NORMAL:
         case GENERIC_TIMER0_WGM_CTC:
-        case GENERIC_TIMER0_WGM_PWM_BOTTOM:
-        case GENERIC_TIMER0_WGM_PWM_OCR0A:
         case GENERIC_TIMER0_WGM_FAST_PWM:
         case GENERIC_TIMER0_WGM_FAST_PWM_OCR0A:
+            // not sure of any sideeffects (yet)
             break;
         
+        case GENERIC_TIMER0_WGM_PWM_BOTTOM:
+        case GENERIC_TIMER0_WGM_PWM_OCR0A:
+            m_dual_slope_counting_down = false; // guessed
+            break;
+
         default:
             logerror("%s: switched to illegal/reserved timer mode %02x\n", m_wgm);
             break;

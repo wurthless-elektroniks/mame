@@ -436,7 +436,6 @@ public:
                                  uint32_t clock,
                                  const device_type device_type);
 
-
     virtual void tick() override;
 
     virtual void com_a_w(uint8_t data) override;
@@ -459,6 +458,12 @@ protected:
     void update_oc0a_fast_pwm_on_top();
     void update_oc0b_fast_pwm_on_compare();
     void update_oc0b_fast_pwm_on_top();
+
+    void update_oc0a_pwm_on_upcount_compare();
+    void update_oc0a_pwm_on_downcount_compare();
+    void update_oc0b_pwm_on_upcount_compare();
+    void update_oc0b_pwm_on_downcount_compare();
+
 
     void force_oc0a(); // force OC0A output as if comparison happened; does not set interrupt flag
     void force_oc0b(); // force OC0B output as if comparison happened; does not set interrupt flag
