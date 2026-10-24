@@ -8,27 +8,6 @@ class avr8_base_timer_device : public device_t
 public:
     enum : uint8_t
     {
-        AVR8_TIMER_SOURCE_DISABLED, // timer is not clocked at all
-
-        AVR8_TIMER_SOURCE_FCPU, // timer clocked in sync with the CPU core
-
-        AVR8_TIMER_SOURCE_PRESCALER_DIV8, // clock from parent prescaler CLK_DIV8
-        AVR8_TIMER_SOURCE_PRESCALER_DIV16, // clock from parent prescaler CLK_DIV16
-        AVR8_TIMER_SOURCE_PRESCALER_DIV32, // clock from parent prescaler CLK_DIV32
-        AVR8_TIMER_SOURCE_PRESCALER_DIV64, // clock from parent prescaler CLK_DIV64
-        AVR8_TIMER_SOURCE_PRESCALER_DIV256, // clock from parent prescaler CLK_DIV256
-        AVR8_TIMER_SOURCE_PRESCALER_DIV1024, // clock from parent prescaler CLK_DIV1024
-
-        AVR8_TIMER_SOURCE_TX_FALLING_EDGE, // clock from Tx pin, falling edge
-        AVR8_TIMER_SOURCE_TX_RISING_EDGE, // clock from Tx pin, rising edge
-
-        AVR8_TIMER_SOURCE_TOSC1, // clock from TOSC1 (e.g., 32768 Hz crystal)
-
-        AVR8_TIMER_SOURCE_USB_PLL, // 16u4/32u4 PLL timer; clock source switched by the PLL controller
-    };
-
-    enum : uint8_t
-    {
         AVR8_TIMER_COM_NORMAL = 0b00,
         AVR8_TIMER_COM_TOGGLE = 0b01,
         AVR8_TIMER_COM_CLEAR  = 0b10,
@@ -42,12 +21,20 @@ public:
     void unmap_wgm_mode(uint8_t which);
 
     // set callbacks for OCxx line state changes, where applicable
-    auto oc_a_w_cb() { m_oc_a_w_cb.bind(); }
-    auto oc_b_w_cb() { m_oc_b_w_cb.bind(); }
-    auto oc_c_w_cb() { m_oc_c_w_cb.bind(); }    
+    auto oc_a_w_cb() { return m_oc_a_w_cb.bind(); }
+    auto oc_b_w_cb() { return m_oc_b_w_cb.bind(); }
+    auto oc_c_w_cb() { return m_oc_c_w_cb.bind(); }
+
+    auto oc_a_en_w_cb() { return m_oc_a_en_w_cb.bind(); }
+    auto oc_b_en_w_cb() { return m_oc_b_en_w_cb.bind(); }
+    auto oc_c_en_w_cb() { return m_oc_c_en_w_cb.bind(); }
+
+    auto oc_a_toggle_w_cb() { return m_oc_a_toggle_w_cb.bind(); }
+    auto oc_b_toggle_w_cb() { return m_oc_b_toggle_w_cb.bind(); }
+    auto oc_c_toggle_w_cb() { return m_oc_c_toggle_w_cb.bind(); }
 
     // TOV/TOIE: timer overflow interrupt, common to all timers
-    auto tov_int_cb() { m_tov_int_cb.bind(); } // TOVx interrupt callback (can clear a pending interrupt)
+    auto tov_int_cb() { return m_tov_int_cb.bind(); } // TOVx interrupt callback (can clear a pending interrupt)
     void tov_w(uint8_t data); // TOVx clear/acknowledge (when written by program)
     void tov_ack_w(uint8_t data) { m_tov = false; }; // TOVx clear/acknowledge (when AVR8 core takes the interrupt)
     uint8_t tov_r() { return m_tov; } // TOVx status
@@ -55,28 +42,28 @@ public:
     uint8_t toie_r() { return m_toie; }
 
     // OCFxA, OCIExA
-    auto ocf_a_int_cb() { m_ocf_a_int_cb.bind(); }
+    auto ocf_a_int_cb() { return m_ocf_a_int_cb.bind(); }
     void ocf_a_w(uint8_t data);
     void ocf_a_ack_w(uint8_t data) { m_ocf_a = false; }
     uint8_t ocf_a_r() { return m_ocf_a; }
     void ocie_a_w(uint8_t data);
-    uint8_t ocie_a_r();
+    uint8_t ocie_a_r() { return m_ocie_a; }
     
     // OCFxB, OCIExB
-    auto ocf_b_int_cb() { m_ocf_b_int_cb.bind(); }
+    auto ocf_b_int_cb() { return m_ocf_b_int_cb.bind(); }
     void ocf_b_w(uint8_t data);
     void ocf_b_ack_w(uint8_t data) { m_ocf_b = false; }
     uint8_t ocf_b_r() { return m_ocf_b; }
     void ocie_b_w(uint8_t data);
-    uint8_t ocie_b_r();
+    uint8_t ocie_b_r() { return m_ocie_b; }
     
     // OCFxC, OCIExC
-    auto ocf_c_int_cb() { m_ocf_c_int_cb.bind(); }
+    auto ocf_c_int_cb() { return m_ocf_c_int_cb.bind(); }
     void ocf_c_w(uint8_t data);
     void ocf_c_ack_w(uint8_t data) { m_ocf_c = false; }
     uint8_t ocf_c_r() { return m_ocf_c; }
     void ocie_c_w(uint8_t data);
-    uint8_t ocie_c_r();
+    uint8_t ocie_c_r() { return m_ocie_c; }
 
     // ICF
     void icf_w(uint8_t data);
@@ -93,7 +80,7 @@ public:
     uint8_t prtim_r();
 
     virtual void wgm_w(uint8_t data) = 0; // WGM modes vary wildly between each timer type
-    uint8_t wgm_r(uint8_t data) { return m_wgm; }
+    uint8_t wgm_r() { return m_wgm; }
 
     // COMxx (Compare Output Mode) write handlers must be installed in the subclasses
     // because the setting values tend to change between timer types.
@@ -110,21 +97,16 @@ public:
     uint8_t com_c_r() { return m_com_c; }
 
     /**
-     * Set incoming value on Tx pin (e.g., T0, T1, etc.)
+     * Set incoming value on Tx pin (T0, T1, etc.). This is to be called
+     * when the GPIO pin state changes at all, not just for input state changes.
+     * Per the datasheets, "transitions on the [Tx] pin will clock the
+     * counter even if the pin is configured as an output". Exceptions
+     * may apply; read the datasheets to double-check.
      * 
      * The Tx pin is usually sampled only in time with the system clock,
-     * so a simple Tx rise or fall should not automatically count the timer.
-     * Read the datasheets for more information.
+     * so toggles on this signal won't necessarily tick the timer.
      */
     void t_w(uint8_t data) { m_t = data != 0; }
-
-    /**
-     * Returns the last timer source set within this timer's internal context.
-     * This is to be used if some external clock source releases its control
-     * of the timer tick() function, and the timer itself has to restore its
-     * last configured timer source.
-     */
-    uint8_t get_last_timer_source() { return m_last_timer_source; }
 
     /**
      * Tick the timer for one clock cycle. The timer subclasses are responsible
@@ -139,6 +121,13 @@ public:
     virtual void cs_w(uint8_t data) = 0;
 
     uint8_t cs_r() { return m_cs; }
+
+    /**
+     * Change clk_io line state. clk_io is fed from the master clock generator
+     * and is tied to the AVR8 CPU clock. If the timer is configured to be
+     * synchronous, then the rising edge of clk_io will cause the timer to tick().
+     */
+    virtual void clk_io_w(uint8_t data);
 
 protected:
     avr8_base_timer_device(const machine_config &mconfig,
@@ -160,6 +149,9 @@ protected:
     uint16_t m_ocr_a;
     uint16_t m_ocr_b;
     uint16_t m_ocr_c;
+    uint16_t m_ocr_a_buf; // OCRxA double-buffer value; needed for PWM modes
+    uint16_t m_ocr_b_buf;
+    uint16_t m_ocr_c_buf;
 
     uint8_t m_wgm; // WGM i.e., waveform generation mode (base timer mode)
 
@@ -191,7 +183,9 @@ protected:
     bool m_dual_slope; // dual slope counting enable
     bool m_dual_slope_counting_down;
 
-    uint8_t m_last_timer_source; // last AVR8_TIMER_SOURCE_xx value set internally by this timer
+    bool m_no_compare_this_cycle; // set if TCNTx is written; blocks compare operation on current timer cycle
+
+    bool m_clk_io; // clk_io signal; derrived from master clock. typically the same as the CPU clcok
 
     // Interrupt callbacks; all write 1 to set interrupt pending and 0 to clear it.
     // When one of these are called, the core or whatever else implementing the callback
@@ -249,8 +243,8 @@ protected:
     void raise_ocf_b(); // raise OCFxB flag and signal an interrupt if enabled
     void raise_ocf_c(); // raise OCFxC flag and signal an interrupt if enabled
 
+    virtual bool is_async_mode() { return false; } // default assumes synchronous timer, so always returns false
 
-    
     // WGM callbacks install
     virtual void install_wgm_callbacks() = 0;
 
@@ -266,6 +260,7 @@ protected:
 //////////////////////////////////////////////////////////////////////////////////////////
 // MIX-INS
 //////////////////////////////////////////////////////////////////////////////////////////
+
 
 /**
  * Adds signals for avr8_10bit_prescaler_device outputs to feed the timer.
@@ -321,21 +316,21 @@ class avr8_megaavr_tifr_mixin
 public:
     void tifr_w(uint8_t data)
     {
-        if (0 <= TovBit && TovBit <= 7) T::tov_w(BIT(data, TovBit));
-        if (0 <= OcfABit && OcfABit <= 7) T::ocf_a_w(BIT(data, OcfABit));
-        if (0 <= OcfBBit && OcfBBit <= 7) T::ocf_b_w(BIT(data, OcfBBit));
-        if (0 <= OcfCBit && OcfCBit <= 7) T::ocf_c_w(BIT(data, OcfCBit));
-        if (0 <= TicfBit && TicfBit <= 7) T::icf_w(BIT(data, TicfBit));
+        if (0 <= TovBit && TovBit <= 7) ((T*)this)->tov_w(BIT(data, TovBit));
+        if (0 <= OcfABit && OcfABit <= 7) ((T*)this)->ocf_a_w(BIT(data, OcfABit));
+        if (0 <= OcfBBit && OcfBBit <= 7) ((T*)this)->ocf_b_w(BIT(data, OcfBBit));
+        if (0 <= OcfCBit && OcfCBit <= 7) ((T*)this)->ocf_c_w(BIT(data, OcfCBit));
+        if (0 <= TicfBit && TicfBit <= 7) ((T*)this)->icf_w(BIT(data, TicfBit));
     }
 
     uint8_t tifr_r()
     {
         return
-            (TovBit >= 0 ? T::tov_r() << TovBit : 0) |
-            (OcfABit >= 0 ? T::ocf_a_r() << OcfABit : 0) |
-            (OcfBBit >= 0 ? T::ocf_b_r() << OcfBBit : 0) |
-            (OcfCBit >= 0 ? T::ocf_c_r() << OcfCBit : 0) |
-            (TicfBit >= 0 ? T::icf_r() << TicfBit : 0);
+            (0 <= TovBit && TovBit <= 7 ? ((T*)this)->tov_r() << TovBit : 0) |
+            (0 <= OcfABit && OcfABit <= 7 ? ((T*)this)->ocf_a_r() << OcfABit : 0) |
+            (0 <= OcfBBit && OcfBBit <= 7 ? ((T*)this)->ocf_b_r() << OcfBBit : 0) |
+            (0 <= OcfCBit && OcfCBit <= 7 ? ((T*)this)->ocf_c_r() << OcfCBit : 0) |
+            (0 <= TicfBit && TicfBit <= 7 ? ((T*)this)->icf_r() << TicfBit : 0);
     }
 };
 
@@ -357,20 +352,111 @@ template <typename T,
 class avr8_megaavr_tccr_a_mixin
 {
 public:
-    void tccr_a_w(uint8_t data);
-    uint8_t tccr_a_r(uint8_t data);
+    void tccr_a_w(uint8_t data)
+    {
+        if ((0 <= Wgm0Bit && Wgm0Bit <= 7) || (0 <= Wgm1Bit && Wgm1Bit <= 7))
+        {
+            uint8_t wgm = ((T*)this)->wgm_r() & 0b11111100;
+            if (0 <= Wgm1Bit && Wgm1Bit <= 7) wgm |= BIT(data, Wgm1Bit) << 1;
+            if (0 <= Wgm0Bit && Wgm0Bit <= 7) wgm |= BIT(data, Wgm0Bit);
+            ((T*)this)->wgm_w(wgm);
+        }
+
+        if ((0 <= ComA1Bit && ComA1Bit <= 7) || (0 <= ComA0Bit && ComA0Bit <= 7))
+        {
+            ((T*)this)->com_a_w((0 <= ComA1Bit && ComA1Bit <= 7 ? BIT(data, ComA1Bit) << 1 : 0) |
+                    (0 <= ComA0Bit && ComA0Bit <= 7 ? BIT(data, ComA0Bit) << 0 : 0));
+        }
+
+        if ((0 <= ComB1Bit && ComB1Bit <= 7) || (0 <= ComB0Bit && ComB0Bit <= 7))
+        {
+            ((T*)this)->com_b_w((0 <= ComB1Bit && ComB1Bit <= 7 ? BIT(data, ComB1Bit) << 1 : 0) |
+                    (0 <= ComB0Bit && ComB0Bit <= 7 ? BIT(data, ComB0Bit) << 0 : 0));
+        }
+        
+        if ((0 <= ComC1Bit && ComC1Bit <= 7) || (0 <= ComC0Bit && ComC0Bit <= 7))
+        {
+            ((T*)this)->com_c_w((0 <= ComC1Bit && ComC1Bit <= 7 ? BIT(data, ComC1Bit) << 1 : 0) |
+                    (0 <= ComC0Bit && ComC0Bit <= 7 ? BIT(data, ComC0Bit) << 0 : 0));
+        }
+    }
+
+    uint8_t tccr_a_r()
+    {
+        uint8_t value = 0;
+
+        if ((0 <= Wgm0Bit && Wgm0Bit <= 7) || (0 <= Wgm1Bit && Wgm1Bit <= 7))
+        {
+            uint8_t wgm = ((T*)this)->wgm_r() & 0b11111100;
+            if (0 <= Wgm1Bit && Wgm1Bit <= 7) value |= BIT(wgm, 1) << Wgm1Bit;
+            if (0 <= Wgm0Bit && Wgm0Bit <= 7) value |= BIT(wgm, 0) << Wgm0Bit;
+        }
+
+        if ((0 <= ComA1Bit && ComA1Bit <= 7) || (0 <= ComA0Bit && ComA0Bit <= 7))
+        {
+            uint8_t com_a = ((T*)this)->com_a_r();
+            if (0 <= ComA1Bit && ComA1Bit <= 7) value |= BIT(com_a, 1) << ComA1Bit;
+            if (0 <= ComA0Bit && ComA0Bit <= 7) value |= BIT(com_a, 0) << ComA0Bit;
+        }
+
+        if ((0 <= ComB1Bit && ComB1Bit <= 7) || (0 <= ComB0Bit && ComB0Bit <= 7))
+        {
+            uint8_t com_b = ((T*)this)->com_b_r();
+            if (0 <= ComB1Bit && ComB1Bit <= 7) value |= BIT(com_b, 1) << ComB1Bit;
+            if (0 <= ComB0Bit && ComB0Bit <= 7) value |= BIT(com_b, 0) << ComB0Bit;
+        }
+        
+        if ((0 <= ComC1Bit && ComC1Bit <= 7) || (0 <= ComC0Bit && ComC0Bit <= 7))
+        {
+            uint8_t com_c = ((T*)this)->com_c_r();
+            if (0 <= ComC1Bit && ComB1Bit <= 7) value |= BIT(com_c, 1) << ComB1Bit;
+            if (0 <= ComB0Bit && ComB0Bit <= 7) value |= BIT(com_c, 0) << ComB0Bit;
+        }
+
+        return value;
+    }
 };
 
-// Mix-ins that are NOT included here because they can't be genericized:
-// - TCNT mixins. Odd behavior can result when TCNT is written while timers are running.
-// - TCCRxB and TCCRxC: These vary wildly between implementations.
+template <typename T,
+          int ToieBit = -1,
+          int OcieABit = -1,
+          int OcieBBit = -1,
+          int OcieCBit = -1,
+          int IcieBit = -1>
+class avr8_megaavr_timsk_mixin
+{
+public:
+    void timsk_w(uint8_t data)
+    {
+        if (0 <= ToieBit && ToieBit <= 7) ((T*)this)->toie_w(BIT(data, ToieBit));
+        if (0 <= OcieABit && OcieABit <= 7) ((T*)this)->ocie_a_w(BIT(data, OcieABit));
+        if (0 <= OcieBBit && OcieBBit <= 7) ((T*)this)->ocie_b_w(BIT(data, OcieBBit));
+        if (0 <= OcieCBit && OcieCBit <= 7) ((T*)this)->ocie_c_w(BIT(data, OcieCBit));
+
+        // TODO: ICIE bit handling
+    }
+
+    uint8_t timsk_r()
+    {
+        uint8_t result = 0;
+
+        if (0 <= ToieBit && ToieBit <= 7) result |= ((T*)this)->toie_r() << ToieBit;
+        if (0 <= OcieABit && OcieABit <= 7) result |= ((T*)this)->ocie_a_r() << OcieABit;
+        if (0 <= OcieBBit && OcieBBit <= 7) result |= ((T*)this)->ocie_b_r() << OcieBBit;
+        if (0 <= OcieCBit && OcieCBit <= 7) result |= ((T*)this)->ocie_c_r() << OcieCBit;
+
+        // TODO: ICIE bit handling
+
+        return result;
+    }
+};
 
 //////////////////////////////////////////////////////////////////////////////////////////
 // TIMER IMPLEMENTATIONS
 //////////////////////////////////////////////////////////////////////////////////////////
 
 class avr8_generic_t0_timer_device : public avr8_base_timer_device,
-                                            avr8_timer_prescaler_input_mixin<avr8_generic_t0_timer_device>
+                                     public avr8_timer_prescaler_input_mixin<avr8_generic_t0_timer_device>
 {
 public:
     enum : uint8_t
@@ -441,6 +527,20 @@ public:
     virtual void com_a_w(uint8_t data) override;
     virtual void com_b_w(uint8_t data) override;
 
+    void ocr_a_w(uint8_t data);
+    uint8_t ocr_a_r();
+    void ocr_b_w(uint8_t data);
+    uint8_t ocr_b_r();
+
+    void tcnt_w(uint8_t data);
+    uint8_t tcnt_r() { return m_tcnt & 0xff; }
+
+    void tccr_b_w(uint8_t data);
+    uint8_t tccr_b_r();
+
+
+    virtual void wgm_w(uint8_t data) override;
+
 protected:
     virtual void install_wgm_callbacks() override;
 
@@ -472,12 +572,9 @@ protected:
 
     virtual void advance_normal() override;
     
-    virtual void wgm_w(uint8_t data) override;
 
     void cs_w(uint8_t data) override;
 
-    void tcnt_w(uint8_t data);
-    uint8_t tcnt_r() { return m_tcnt & 0xff; }
 };
 
 
@@ -490,8 +587,9 @@ protected:
  * are mapped to more than one timer.
  */
 class avr8_megaavr_timer_0_device : public avr8_generic_t0_timer_device,
-                                    avr8_megaavr_tifr_mixin<avr8_megaavr_timer_0_device, 0, 1, 2>,
-                                    avr8_megaavr_tccr_a_mixin<avr8_megaavr_timer_0_device, 0, 1, 6, 7, 4, 5>
+                                    public avr8_megaavr_tifr_mixin<avr8_megaavr_timer_0_device, 0, 1, 2>,
+                                    public avr8_megaavr_tccr_a_mixin<avr8_megaavr_timer_0_device, 0, 1, 6, 7, 4, 5>,
+                                    public avr8_megaavr_timsk_mixin<avr8_megaavr_timer_0_device, 0, 1, 2>
 {
 public:
     avr8_megaavr_timer_0_device(const machine_config &mconfig,
@@ -653,12 +751,12 @@ public:
                                 device_t *owner,
                                 uint32_t clock) ATTR_COLD;
 
-    auto clk8_w_cb() { m_clk8_w_cb.bind(); }
-    auto clk32_w_cb() { m_clk32_w_cb.bind(); }
-    auto clk64_w_cb() { m_clk64_w_cb.bind(); }
-    auto clk128_w_cb() { m_clk128_w_cb.bind(); }
-    auto clk256_w_cb() { m_clk256_w_cb.bind(); }
-    auto clk1024_w_cb() { m_clk1024_w_cb.bind(); }
+    auto clk8_w_cb() { return m_clk8_w_cb.bind(); }
+    auto clk32_w_cb() { return m_clk32_w_cb.bind(); }
+    auto clk64_w_cb() { return m_clk64_w_cb.bind(); }
+    auto clk128_w_cb() { return m_clk128_w_cb.bind(); }
+    auto clk256_w_cb() { return m_clk256_w_cb.bind(); }
+    auto clk1024_w_cb() { return m_clk1024_w_cb.bind(); }
     
     /**
      * Tick the prescaler from whatever clock source is feeding it.
@@ -703,14 +801,17 @@ public:
                                          device_t *owner,
                                          uint32_t clock);
 
-    auto gpio_bit_w_cb() { m_gpio_bit_w_wb.bind(); }
-
+    // inputs from output compare units
     void compare_out_a_w(uint8_t data); // OCxx from output compare unit
     void compare_out_en_a(uint8_t data); // from output compare unit; 1 if COMxx != 0
     void compare_out_b_w(uint8_t data); // OCxx from output compare unit
     void compare_out_en_b(uint8_t data); // from output compare unit; 1 if COMxx != 0
     
+    // inputs from PORTx mux
     void port_bit_w(uint8_t data); // from PORTx bit
+
+    // outputs to GPIO mux
+    auto gpio_bit_w_cb() { return m_gpio_bit_w_wb.bind(); }
 
     // device-level overrides
 	virtual void device_start() override ATTR_COLD;

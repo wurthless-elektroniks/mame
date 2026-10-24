@@ -213,6 +213,24 @@ void avr8_base_timer_device::toie_w(uint8_t data)
     if (!m_tov_int_cb.isunset()) m_tov_int_cb(m_toie != 0 && m_tov != 0);
 }
 
+void avr8_base_timer_device::ocie_a_w(uint8_t data)
+{
+    m_ocie_a = data != 0;
+    if (!m_ocf_a_int_cb.isunset()) m_ocf_a_int_cb(m_ocie_a != 0 && m_ocf_a != 0);
+}
+
+void avr8_base_timer_device::ocie_b_w(uint8_t data)
+{
+    m_ocie_b = data != 0;
+    if (!m_ocf_b_int_cb.isunset()) m_ocf_b_int_cb(m_ocie_b != 0 && m_ocf_b != 0);
+}
+
+void avr8_base_timer_device::ocie_c_w(uint8_t data)
+{
+    m_ocie_c = data != 0;
+    if (!m_ocf_c_int_cb.isunset()) m_ocf_c_int_cb(m_ocie_c != 0 && m_ocf_c != 0);
+}
+
 void avr8_base_timer_device::tov_w(uint8_t data)
 {
     if (data == 0) return;
@@ -221,37 +239,28 @@ void avr8_base_timer_device::tov_w(uint8_t data)
     if (!m_tov_int_cb.isunset()) m_tov_int_cb(0);
 }
 
-void avr8_base_timer_device::advance_illegal_wgm_state()
+void avr8_base_timer_device::ocf_a_w(uint8_t data)
 {
-    logerror("%s: advance timer on illegal/unimplemented wgm state %02x\n", machine().describe_context(), m_wgm);
+    if (data == 0) return;
+
+    m_ocf_a = false;
+    if (!m_ocf_a_int_cb.isunset()) m_ocf_a_int_cb(0);
 }
 
-void avr8_base_timer_device::advance_normal()
+void avr8_base_timer_device::ocf_b_w(uint8_t data)
 {
-    if (will_next_count_overflow())
-    {
-        raise_tov();
-        m_tcnt = 0;
-    }
-    else
-    {
-        m_tcnt = next_count();
-    }
+    if (data == 0) return;
+
+    m_ocf_b = false;
+    if (!m_ocf_b_int_cb.isunset()) m_ocf_b_int_cb(0);
 }
 
-void avr8_base_timer_device::com_a_w(uint8_t data)
+void avr8_base_timer_device::ocf_c_w(uint8_t data)
 {
-    fatalerror("com_a_w unimplemented. Timer doesn't support it, or you found a bug.\n");
-}
-    
-void avr8_base_timer_device::com_b_w(uint8_t data)
-{
-    fatalerror("com_b_w unimplemented. Timer doesn't support it, or you found a bug.\n");
-}
+    if (data == 0) return;
 
-void avr8_base_timer_device::com_c_w(uint8_t data)
-{
-    fatalerror("com_c_w unimplemented. Timer doesn't support it, or you found a bug.\n");
+    m_ocf_c = false;
+    if (!m_ocf_c_int_cb.isunset()) m_ocf_c_int_cb(0);
 }
 
 void avr8_base_timer_device::raise_tov()
@@ -276,6 +285,45 @@ void avr8_base_timer_device::raise_ocf_c()
 {
     m_ocf_c = true;
     if (m_ocie_c && !m_ocf_c_int_cb.isunset()) m_ocf_c_int_cb(1);
+}
+
+void avr8_base_timer_device::com_a_w(uint8_t data)
+{
+    fatalerror("com_a_w unimplemented. Timer doesn't support it, or you found a bug.\n");
+}
+    
+void avr8_base_timer_device::com_b_w(uint8_t data)
+{
+    fatalerror("com_b_w unimplemented. Timer doesn't support it, or you found a bug.\n");
+}
+
+void avr8_base_timer_device::com_c_w(uint8_t data)
+{
+    fatalerror("com_c_w unimplemented. Timer doesn't support it, or you found a bug.\n");
+}
+
+void avr8_base_timer_device::clk_io_w(uint8_t data)
+{
+    if (!m_clk_io && data != 0 && !is_async_mode()) tick();
+    m_clk_io = data != 0;
+}
+
+void avr8_base_timer_device::advance_illegal_wgm_state()
+{
+    logerror("%s: advance timer on illegal/unimplemented wgm state %02x\n", machine().describe_context(), m_wgm);
+}
+
+void avr8_base_timer_device::advance_normal()
+{
+    if (will_next_count_overflow())
+    {
+        raise_tov();
+        m_tcnt = 0;
+    }
+    else
+    {
+        m_tcnt = next_count();
+    }
 }
 
 ///////////////////////////////////////////////////////////////
@@ -333,92 +381,6 @@ void avr8_10bit_prescaler_device::sync_w(uint8_t data)
 uint8_t avr8_10bit_prescaler_device::sync_r()
 {
     return m_sync;
-}
-
-///////////////////////////////////////////////////////////////
-// TCCR A MIX-IN FUNCTIONS
-///////////////////////////////////////////////////////////////
-
-template <typename T,
-          int Wgm0Bit,
-          int Wgm1Bit,
-          int ComA0Bit,
-          int ComA1Bit,
-          int ComB0Bit,
-          int ComB1Bit,
-          int ComC0Bit,
-          int ComC1Bit>
-void avr8_megaavr_tccr_a_mixin<T,Wgm0Bit,Wgm1Bit,ComA0Bit,ComA1Bit,ComB0Bit,ComB1Bit,ComC0Bit,ComC1Bit>::tccr_a_w(uint8_t data)
-{
-    if ((0 <= Wgm0Bit && Wgm0Bit <= 7) || (0 <= Wgm1Bit && Wgm1Bit <= 7))
-    {
-        uint8_t wgm = T::wgm_r() & 0b11111100;
-        if (0 <= Wgm1Bit && Wgm1Bit <= 7) wgm |= BIT(data, Wgm1Bit, 1) << 1;
-        if (0 <= Wgm0Bit && Wgm0Bit <= 7) wgm |= BIT(data, Wgm0Bit, 1);
-        T::wgm_w(wgm);
-    }
-
-    if ((0 <= ComA1Bit && ComA1Bit <= 7) || (0 <= ComA0Bit && ComA0Bit <= 7))
-    {
-        T::com_a_w((0 <= ComA1Bit && ComA1Bit <= 7 ? BIT(data, ComA1Bit, 1) << 1 : 0) |
-                   (0 <= ComA0Bit && ComA0Bit <= 7 ? BIT(data, ComA0Bit, 1) << 0 : 0));
-    }
-
-    if ((0 <= ComB1Bit && ComB1Bit <= 7) || (0 <= ComB0Bit && ComB0Bit <= 7))
-    {
-        T::com_b_w((0 <= ComB1Bit && ComB1Bit <= 7 ? BIT(data, ComB1Bit, 1) << 1 : 0) |
-                   (0 <= ComB0Bit && ComB0Bit <= 7 ? BIT(data, ComB0Bit, 1) << 0 : 0));
-    }
-    
-    if ((0 <= ComC1Bit && ComC1Bit <= 7) || (0 <= ComC0Bit && ComC0Bit <= 7))
-    {
-        T::com_c_w((0 <= ComC1Bit && ComC1Bit <= 7 ? BIT(data, ComC1Bit, 1) << 1 : 0) |
-                   (0 <= ComC0Bit && ComC0Bit <= 7 ? BIT(data, ComC0Bit, 1) << 0 : 0));
-    }
-}
-
-template <typename T,
-          int Wgm0Bit,
-          int Wgm1Bit,
-          int ComA0Bit,
-          int ComA1Bit,
-          int ComB0Bit,
-          int ComB1Bit,
-          int ComC0Bit,
-          int ComC1Bit>
-uint8_t avr8_megaavr_tccr_a_mixin<T,Wgm0Bit,Wgm1Bit,ComA0Bit,ComA1Bit,ComB0Bit,ComB1Bit,ComC0Bit,ComC1Bit>::tccr_a_r(uint8_t data)
-{
-    uint8_t value = 0;
-
-    if ((0 <= Wgm0Bit && Wgm0Bit <= 7) || (0 <= Wgm1Bit && Wgm1Bit <= 7))
-    {
-        uint8_t wgm = T::wgm_r() & 0b11111100;
-        if (0 <= Wgm1Bit && Wgm1Bit <= 7) value |= BIT(wgm, 1) << Wgm1Bit;
-        if (0 <= Wgm0Bit && Wgm0Bit <= 7) value |= BIT(wgm, 0) << Wgm0Bit;
-    }
-
-    if ((0 <= ComA1Bit && ComA1Bit <= 7) || (0 <= ComA0Bit && ComA0Bit <= 7))
-    {
-        uint8_t com_a = T::com_a_r();
-        if (0 <= ComA1Bit && ComA1Bit <= 7) value |= BIT(com_a, 1) << ComA1Bit;
-        if (0 <= ComA0Bit && ComA0Bit <= 7) value |= BIT(com_a, 0) << ComA0Bit;
-    }
-
-    if ((0 <= ComB1Bit && ComB1Bit <= 7) || (0 <= ComB0Bit && ComB0Bit <= 7))
-    {
-        uint8_t com_b = T::com_b_r();
-        if (0 <= ComB1Bit && ComB1Bit <= 7) value |= BIT(com_b, 1) << ComB1Bit;
-        if (0 <= ComB0Bit && ComB0Bit <= 7) value |= BIT(com_b, 0) << ComB0Bit;
-    }
-    
-    if ((0 <= ComC1Bit && ComC1Bit <= 7) || (0 <= ComC0Bit && ComC0Bit <= 7))
-    {
-        uint8_t com_c = T::com_c_r();
-        if (0 <= ComC1Bit && ComB1Bit <= 7) value |= BIT(com_c, 1) << ComB1Bit;
-        if (0 <= ComB0Bit && ComB0Bit <= 7) value |= BIT(com_c, 0) << ComB0Bit;
-    }
-
-    return value;
 }
 
 ///////////////////////////////////////////////////////////////
@@ -556,6 +518,7 @@ void avr8_generic_t0_timer_device::tick()
     // GENERIC_TIMER0_CS_DIRECT = just fall through
 
     m_wgm_cbs[m_wgm]();
+    m_no_compare_this_cycle = false; // because the current timer cycle has ended
 }
 
 void avr8_generic_t0_timer_device::advance_normal()
@@ -647,11 +610,11 @@ void avr8_generic_t0_timer_device::advance_pwm()
 void avr8_generic_t0_timer_device::advance_pwm_ocr0a()
 {
     uint8_t next_count_value = m_dual_slope_counting_down ? prev_count() : next_count();
-    uint8_t count_limit = m_dual_slope_counting_down ? 0 : m_ocr_a;
+    // uint8_t count_limit = m_dual_slope_counting_down ? 0 : m_ocr_a;
 
     if (next_count_value == m_ocr_a)
     {
-        
+        // TODO: confirm this; datasheet phrasing is a bit odd
         if (m_ocr_a != max_count())
         {
             raise_ocf_a();
@@ -671,6 +634,12 @@ void avr8_generic_t0_timer_device::advance_pwm_ocr0a()
 
     if (next_count_value == m_ocr_b)
     {
+        // TODO: confirm this; datasheet phrasing is a bit odd
+        if (m_ocr_b != max_count())
+        {
+            raise_ocf_b();
+        }
+
         if (m_dual_slope_counting_down)
         {
             update_oc0b_pwm_on_downcount_compare();
@@ -869,14 +838,35 @@ void avr8_generic_t0_timer_device::update_oc0a_fast_pwm_on_top()
     };
 }
 
+void avr8_generic_t0_timer_device::update_oc0b_fast_pwm_on_top()
+{
+    switch (m_com_b)
+    {
+        case AVR8_TIMER_COM_CLEAR:
+            m_oc_b_w_cb(1);
+            break;
+
+        case AVR8_TIMER_COM_SET:
+            m_oc_b_w_cb(0);
+            break;
+        
+        case AVR8_TIMER_COM_TOGGLE:
+        case AVR8_TIMER_COM_NORMAL:
+        default:
+            return;
+    };
+}
+
 void avr8_generic_t0_timer_device::update_oc0a_pwm_on_upcount_compare()
 {
     switch (m_com_a)
     {
         case AVR8_TIMER_COM_CLEAR:
+            m_oc_a_w_cb(0);
             break;
 
         case AVR8_TIMER_COM_SET:
+            m_oc_a_w_cb(1);
             break;
         
         case AVR8_TIMER_COM_TOGGLE:
@@ -893,9 +883,11 @@ void avr8_generic_t0_timer_device::update_oc0a_pwm_on_downcount_compare()
     switch (m_com_a)
     {
         case AVR8_TIMER_COM_CLEAR:
+            m_oc_a_w_cb(1);
             break;
 
         case AVR8_TIMER_COM_SET:
+            m_oc_a_w_cb(0);
             break;
         
         case AVR8_TIMER_COM_TOGGLE:
@@ -947,6 +939,7 @@ void avr8_generic_t0_timer_device::update_oc0b_pwm_on_downcount_compare()
 
 void avr8_generic_t0_timer_device::com_a_w(uint8_t data)
 {
+    // COMx changes take effect immediately
     m_com_a = BIT(data, 0, 2);
 
     if (m_com_a == AVR8_TIMER_COM_NORMAL)
@@ -962,6 +955,7 @@ void avr8_generic_t0_timer_device::com_a_w(uint8_t data)
     
 void avr8_generic_t0_timer_device::com_b_w(uint8_t data)
 {
+    // COMx changes take effect immediately
     m_com_b = BIT(data, 0, 2);
 
     if (m_com_b == AVR8_TIMER_COM_NORMAL)
@@ -995,14 +989,23 @@ void avr8_generic_t0_timer_device::wgm_w(uint8_t data)
     {
         case GENERIC_TIMER0_WGM_NORMAL:
         case GENERIC_TIMER0_WGM_CTC:
+            // not sure of any sideeffects (yet)
+            break;
+
         case GENERIC_TIMER0_WGM_FAST_PWM:
         case GENERIC_TIMER0_WGM_FAST_PWM_OCR0A:
-            // not sure of any sideeffects (yet)
+            // PWM modes double buffer OCRxx values to prevent misshapen output waveforms
+            m_ocr_a_buf = m_ocr_a;
+            m_ocr_b_buf = m_ocr_b;
             break;
         
         case GENERIC_TIMER0_WGM_PWM_BOTTOM:
         case GENERIC_TIMER0_WGM_PWM_OCR0A:
             m_dual_slope_counting_down = false; // guessed
+
+            // PWM modes double buffer OCRxx values to prevent misshapen output waveforms
+            m_ocr_a_buf = m_ocr_a;
+            m_ocr_b_buf = m_ocr_b;
             break;
 
         default:
@@ -1011,12 +1014,74 @@ void avr8_generic_t0_timer_device::wgm_w(uint8_t data)
     };
 }
 
-void avr8_generic_t0_timer_device::tcnt_w(uint8_t data)
+void avr8_generic_t0_timer_device::ocr_a_w(uint8_t data)
 {
-    // CPU writes override any compare matches for the next clock cycle
+    switch (m_wgm)
+    {
+        case GENERIC_TIMER0_WGM_FAST_PWM:
+        case GENERIC_TIMER0_WGM_FAST_PWM_OCR0A:
+        case GENERIC_TIMER0_WGM_PWM_BOTTOM:
+        case GENERIC_TIMER0_WGM_PWM_OCR0A:
+            m_ocr_a_buf = data;
+            break;
+        default:
+            m_ocr_a = data;
+            break;
+    };
 }
 
+void avr8_generic_t0_timer_device::ocr_b_w(uint8_t data)
+{
+    switch (m_wgm)
+    {
+        case GENERIC_TIMER0_WGM_FAST_PWM:
+        case GENERIC_TIMER0_WGM_FAST_PWM_OCR0A:
+        case GENERIC_TIMER0_WGM_PWM_BOTTOM:
+        case GENERIC_TIMER0_WGM_PWM_OCR0A:
+            m_ocr_b_buf = data;
+            break;
+        default:
+            m_ocr_b = data;
+            break;
+    };
+}
 
+void avr8_generic_t0_timer_device::tcnt_w(uint8_t data)
+{
+    // CPU writes override any compare matches for the current timer clock cycle
+    m_tcnt = data;
+    m_no_compare_this_cycle = true;
+}
+
+void avr8_generic_t0_timer_device::force_oc0a()
+{
+    if (m_wgm == GENERIC_TIMER0_WGM_NORMAL || m_wgm == GENERIC_TIMER0_WGM_CTC)
+    {
+        update_oc0a_normal_or_ctc();
+    }
+}
+
+void avr8_generic_t0_timer_device::force_oc0b()
+{
+    if (m_wgm == GENERIC_TIMER0_WGM_NORMAL || m_wgm == GENERIC_TIMER0_WGM_CTC)
+    {
+        update_oc0b_normal_or_ctc();
+    }
+}
+
+void avr8_generic_t0_timer_device::tccr_b_w(uint8_t data)
+{
+    if (BIT(data,7)) force_oc0a();
+    if (BIT(data,6)) force_oc0b();
+    cs_w(BIT(data,0,3));
+    wgm_w(BIT(wgm_r(),0,2) | BIT(data,3) << 2);
+}
+
+uint8_t avr8_generic_t0_timer_device::tccr_b_r()
+{
+    // the FOCxx bits always read as zero; they are never stored.
+    return cs_r() | (BIT(wgm_r(),2) << 3);
+}
 
 ///////////////////////////////////////////////////////////////
 // GENERIC 16-BIT TIMER 1

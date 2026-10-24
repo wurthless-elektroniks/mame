@@ -572,7 +572,7 @@ void avr8_device<NumTimers>::base_internal_map(address_map &map)
 	map(0x003c, 0x003c).w(FUNC(avr8_device::eifr_w));
 	map(0x003e, 0x003e).w(FUNC(avr8_device::gpior0_w));
 	map(0x003f, 0x003f).w(FUNC(avr8_device::eecr_w));
-	map(0x0043, 0x0043).w(FUNC(avr8_device::gtccr_w));
+	// map(0x0043, 0x0043).w(FUNC(avr8_device::gtccr_w));
 	map(0x0044, 0x0044).w(FUNC(avr8_device::tccr0a_w));
 	map(0x0045, 0x0045).w(FUNC(avr8_device::tccr0b_w));
 	map(0x0047, 0x0047).w(FUNC(avr8_device::ocr0a_w));
@@ -661,9 +661,8 @@ void avr8_device<NumTimers>::base_internal_map(address_map &map)
 	map(0x00c2, 0x00c2).w(FUNC(avr8_device::ucsr0c_w));
 }
 
-#if 0
 
-void megaavr_classic_base_device::megaavr_base_internal_map(address_map &map)
+void megaavr_classic_base_device::megaavr_classic_base_internal_map(address_map &map)
 {
 	// Most classic megaAVRs use this map.
 	// The ATMega16 and ATMega32 map is more similar to the ATTinys.
@@ -674,24 +673,37 @@ void megaavr_classic_base_device::megaavr_base_internal_map(address_map &map)
 	// it should cause a logerror().
 	map(0x0000, 0x001f).ram().share(m_r);
 
-	// prescaler GTCCR is at the same location on x8, xU4... check others
-	map(0x0043, 0x0043).rw(m_10bit_prescaler, FUNC(avr8_10bit_prescaler_device::gtccr_r), FUNC(avr8_10bit_prescaler_device::gtccr_w));
+	// GTCCR register is common to all classic megaAVRs; ATMega8/16/32 and the ATTinys don't have it
+	map(0x0043, 0x0043).rw(FUNC(megaavr_classic_base_device::gtccr_r), FUNC(megaavr_classic_base_device::gtccr_w));
 
-	// Timer 0 is the same across all classic/legacy megaAVR devices
-	map(0x0035, 0x0035).rw(m_timer0, FUNC(megaavr_timer_0_device::tifr_r), FUNC(megaavr_timer_0_device::tifr_w));
-	map(0x0044, 0x0044).rw(m_timer0, FUNC(megaavr_timer_0_device::tccr_a_r), FUNC(megaavr_timer_0_device::tccr_a_w));
-	map(0x0045, 0x0045).rw(m_timer0, FUNC(megaavr_timer_0_device::tccr_b_r), FUNC(megaavr_timer_0_device::tccr_b_w));
-	map(0x0046, 0x0046).rw(m_timer0, FUNC(megaavr_timer_0_device::tcnt_r), FUNC(megaavr_timer_0_device::tcnt_w)); 
-	map(0x0047, 0x0047).rw(m_timer0, FUNC(megaavr_timer_0_device::ocr_a_r), FUNC(megaavr_timer_0_device::ocr_a_w_r));
-	map(0x0048, 0x0048).rw(m_timer0, FUNC(megaavr_timer_0_device::ocr_b_r), FUNC(megaavr_timer_0_device::ocr_b_w_r));
-	map(0x006e, 0x006e).rw(m_timer0, FUNC(megaavr_timer_0_device::timsk_r), FUNC(megaavr_timer_0_device::timsk_w));
+	// Timer 0 is the same across all classic/legacy megaAVR devices 
+	map(0x0035, 0x0035).rw(m_timer_0, &avr8_megaavr_timer_0_device::tifr_r, "timer_0_tifr_r", &avr8_megaavr_timer_0_device::tifr_w, "timer_0_tifr_w");
+	map(0x0044, 0x0044).rw(m_timer_0, &avr8_megaavr_timer_0_device::tccr_a_r, "timer_0_tccr_a_r", &avr8_megaavr_timer_0_device::tccr_a_w, "timer_0_tccr_a_w");
+	map(0x0045, 0x0045).rw(m_timer_0, FUNC(avr8_megaavr_timer_0_device::tccr_b_r), FUNC(avr8_megaavr_timer_0_device::tccr_b_w));
+	map(0x0046, 0x0046).rw(m_timer_0, FUNC(avr8_megaavr_timer_0_device::tcnt_r), FUNC(avr8_megaavr_timer_0_device::tcnt_w)); 
+	map(0x0047, 0x0047).rw(m_timer_0, FUNC(avr8_megaavr_timer_0_device::ocr_a_r), FUNC(avr8_megaavr_timer_0_device::ocr_a_w));
+	map(0x0048, 0x0048).rw(m_timer_0, FUNC(avr8_megaavr_timer_0_device::ocr_b_r), FUNC(avr8_megaavr_timer_0_device::ocr_b_w));
+	map(0x006e, 0x006e).rw(m_timer_0, FUNC(avr8_megaavr_timer_0_device::timsk_r), FUNC(avr8_megaavr_timer_0_device::timsk_w));
 }
+
+#if 0
 
 void atmegax8_base_device::atmegax8_base_internal_map(address_map &map)
 {
 	megaavr_classic_base_device::megaavr_base_internal_map(map);
 
-	// Timer 1
+	// x8 series has ports PB, PC, PD
+	map(0x0023, 0x0023).r(FUNC(avr8_device::pin_r<1>));
+	map(0x0024, 0x0024).w(FUNC(avr8_device::ddr_w<GPIOB>));
+	map(0x0025, 0x0025).rw(FUNC(avr8_device::gpio_r<GPIOB>), FUNC(avr8_device::port_w<GPIOB>));
+	map(0x0026, 0x0026).r(FUNC(avr8_device::pin_r<2>));
+	map(0x0027, 0x0027).w(FUNC(avr8_device::ddr_w<GPIOC>));
+	map(0x0028, 0x0028).rw(FUNC(avr8_device::gpio_r<GPIOC>), FUNC(avr8_device::port_w<GPIOC>));
+	map(0x0029, 0x0029).r(FUNC(avr8_device::pin_r<3>));
+	map(0x002a, 0x002a).w(FUNC(avr8_device::ddr_w<GPIOD>));
+	map(0x002b, 0x002b).rw(FUNC(avr8_device::gpio_r<GPIOD>), FUNC(avr8_device::port_w<GPIOD>));
+
+	// Timer 1: generic 2-channel 16-bit
 	map(0x0036, 0x0036).rw(m_timer1, FUNC(megaavr_timer_1_device::tifr_r), FUNC(megaavr_timer_1_device::tifr_w));
 	map(0x006f, 0x006f).rw(m_timer1, FUNC(megaavr_timer_1_device::timsk_r), FUNC(megaavr_timer_1_device::timsk_w));
 	map(0x0080, 0x0080).rw(m_timer1, FUNC(megaavr_timer_1_device::tccr_a_r), FUNC(megaavr_timer_1_device::tccr_a_w));
@@ -707,7 +719,7 @@ void atmegax8_base_device::atmegax8_base_internal_map(address_map &map)
  	map(0x008a, 0x008a).rw(m_timer1, FUNC(megaavr_timer_1_device::ocr_b_l_r), FUNC(megaavr_timer_1_device::ocr_b_l_w));
  	map(0x008b, 0x008b).rw(m_timer1, FUNC(megaavr_timer_1_device::ocr_b_h_r), FUNC(megaavr_timer_1_device::ocr_b_h_w));
 
-	// Timer 2
+	// Timer 2: async
 	map(0x0037, 0x0037).rw(m_timer2, FUNC(avr8_fakertc_timer_device::tifr_r), FUNC(avr8_fakertc_timer_device::tifr_w));
 	map(0x0070, 0x0070).rw(m_timer2, FUNC(avr8_fakertc_timer_device::tmsk_r), FUNC(avr8_fakertc_timer_device::tmsk_w));
 	map(0x00b0, 0x00b0).rw(m_timer2, FUNC(avr8_fakertc_timer_device::tccr_a_r), FUNC(avr8_fakertc_timer_device::tccr_a_w));
@@ -746,6 +758,23 @@ void atmega328_device::atmega328_internal_map(address_map &map)
 void atmegaxu4_base_device::atmegaxu4_base_internal_map(address_map &map)
 {
 	megaavr_classic_base_device::megaavr_base_internal_map(map);
+
+	// xU4 series has ports PB, PC, PD, PE, PF
+	// though a lot of them have bits that go nowhere
+	map(0x0024, 0x0024).w(FUNC(avr8_device::ddr_w<GPIOB>));
+	map(0x0025, 0x0025).rw(FUNC(avr8_device::gpio_r<GPIOB>), FUNC(avr8_device::port_w<GPIOB>));
+	map(0x0026, 0x0026).r(FUNC(avr8_device::pin_r<2>));
+	map(0x0027, 0x0027).w(FUNC(avr8_device::ddr_w<GPIOC>));
+	map(0x0028, 0x0028).rw(FUNC(avr8_device::gpio_r<GPIOC>), FUNC(avr8_device::port_w<GPIOC>));
+	map(0x0029, 0x0029).r(FUNC(avr8_device::pin_r<3>));
+	map(0x002a, 0x002a).w(FUNC(avr8_device::ddr_w<GPIOD>));
+	map(0x002b, 0x002b).rw(FUNC(avr8_device::gpio_r<GPIOD>), FUNC(avr8_device::port_w<GPIOD>));
+	map(0x002c, 0x002c).r(FUNC(avr8_device::pin_r<4>));
+	map(0x002d, 0x002d).w(FUNC(avr8_device::ddr_w<GPIOE>));
+	map(0x002e, 0x002e).rw(FUNC(avr8_device::gpio_r<GPIOE>), FUNC(avr8_device::port_w<GPIOE>));
+	map(0x002f, 0x002f).r(FUNC(avr8_device::pin_r<5>));
+	map(0x0030, 0x0030).w(FUNC(avr8_device::ddr_w<GPIOF>));
+	map(0x0031, 0x0031).rw(FUNC(avr8_device::gpio_r<GPIOF>), FUNC(avr8_device::port_w<GPIOF>));
 
 	// install timers 1, 3, 4 here
 
@@ -865,7 +894,7 @@ void atmega2560_device::atmega2560_internal_map(address_map &map)
 //-------------------------------------------------
 
 atmega88_device::atmega88_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA88, 0x0fff, address_map_constructor(FUNC(atmega88_device::atmega88_internal_map), this))
+	: atmegax8_base_device(mconfig, tag, owner, clock, ATMEGA88, 0x0fff, address_map_constructor(FUNC(atmega88_device::atmega88_internal_map), this))
 {
 }
 
@@ -885,7 +914,7 @@ bool atmega88_device::pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group) c
 //-------------------------------------------------
 
 atmega168_device::atmega168_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA168, 0x1fff, address_map_constructor(FUNC(atmega168_device::atmega168_internal_map), this))
+	: atmegax8_base_device(mconfig, tag, owner, clock, ATMEGA168, 0x1fff, address_map_constructor(FUNC(atmega168_device::atmega168_internal_map), this))
 {
 }
 
@@ -894,7 +923,7 @@ atmega168_device::atmega168_device(const machine_config &mconfig, const char *ta
 //-------------------------------------------------
 
 atmega328_device::atmega328_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA328, 0x3fff, address_map_constructor(FUNC(atmega328_device::atmega328_internal_map), this))
+	: atmegax8_base_device(mconfig, tag, owner, clock, ATMEGA328, 0x3fff, address_map_constructor(FUNC(atmega328_device::atmega328_internal_map), this))
 {
 }
 
@@ -903,7 +932,7 @@ atmega328_device::atmega328_device(const machine_config &mconfig, const char *ta
 //-------------------------------------------------
 
 atmega32u4_device::atmega32u4_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<4>(mconfig, tag, owner, clock, ATMEGA32U4, 0x3fff, address_map_constructor(FUNC(atmega32u4_device::atmega32u4_internal_map), this))
+	: atmegaxu4_base_device(mconfig, tag, owner, clock, ATMEGA32U4, 0x3fff, address_map_constructor(FUNC(atmega32u4_device::atmega32u4_internal_map), this))
 {
 }
 
@@ -913,7 +942,7 @@ atmega32u4_device::atmega32u4_device(const machine_config &mconfig, const char *
 //-------------------------------------------------
 
 atmega644_device::atmega644_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA644, 0x7fff, address_map_constructor(FUNC(atmega644_device::atmega644_internal_map), this))
+	: atmegax4_base_device(mconfig, tag, owner, clock, ATMEGA644, 0x7fff, address_map_constructor(FUNC(atmega644_device::atmega644_internal_map), this))
 {
 }
 
@@ -922,7 +951,7 @@ atmega644_device::atmega644_device(const machine_config &mconfig, const char *ta
 //-------------------------------------------------
 
 atmega1284_device::atmega1284_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<3>(mconfig, tag, owner, clock, ATMEGA1284, 0xffff, address_map_constructor(FUNC(atmega1284_device::atmega1284_internal_map), this))
+	: atmegax4_base_device(mconfig, tag, owner, clock, ATMEGA1284, 0xffff, address_map_constructor(FUNC(atmega1284_device::atmega1284_internal_map), this))
 {
 }
 
@@ -931,7 +960,7 @@ atmega1284_device::atmega1284_device(const machine_config &mconfig, const char *
 //-------------------------------------------------
 
 atmega1280_device::atmega1280_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<6>(mconfig, tag, owner, clock, ATMEGA1280, 0xffff, address_map_constructor(FUNC(atmega1280_device::atmega1280_internal_map), this))
+	: atmegax0_base_device(mconfig, tag, owner, clock, ATMEGA1280, 0xffff, address_map_constructor(FUNC(atmega1280_device::atmega1280_internal_map), this))
 {
 }
 
@@ -940,7 +969,7 @@ atmega1280_device::atmega1280_device(const machine_config &mconfig, const char *
 //-------------------------------------------------
 
 atmega2560_device::atmega2560_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
-	: avr8_device<6>(mconfig, tag, owner, clock, ATMEGA2560, 0x1ffff, address_map_constructor(FUNC(atmega2560_device::atmega2560_internal_map), this))
+	: atmegax0_base_device(mconfig, tag, owner, clock, ATMEGA2560, 0x1ffff, address_map_constructor(FUNC(atmega2560_device::atmega2560_internal_map), this))
 {
 }
 
@@ -976,6 +1005,8 @@ avr8_device<NumTimers>::avr8_device(const machine_config &mconfig, const char *t
 	, m_spi_prescale(0)
 	, m_spi_prescale_count(0)
 	, m_spi_rx_shift(0)
+	, m_synchronous_prescaler(*this, "syncprescale")
+	, m_timers(*this, "timer%u", 0U)
 {
 	// Fill in default callbacks
 	for (int i = 0; i < 8*4; i++)
@@ -1098,6 +1129,12 @@ avr8_device<NumTimers>::avr8_device(const machine_config &mconfig, const char *t
 	m_timer0_tick = m_timer0_ticks[0];
 	m_timer1_tick = m_timer1_ticks[0];
 	m_timer2_tick = m_timer2_ticks[0];
+}
+
+megaavr_classic_base_device::megaavr_classic_base_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock, const device_type type, uint32_t addr_mask, address_map_constructor internal_map)
+	: avr8_device(mconfig, tag, owner, clock, type, addr_mask, internal_map)
+	, m_timer_0(*this, "timer0")
+{
 }
 
 //-------------------------------------------------
@@ -1394,22 +1431,25 @@ void avr8_device<NumTimers>::device_reset()
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-void avr8_base_device::device_add_mconfig(machine_config &config)
+template <int NumTimers>
+void avr8_device<NumTimers>::device_add_mconfig(machine_config &config)
 {
-	// the base AVR8 class is not responsible for installing peripherals
+	avr8_base_device::device_add_mconfig(config);
+
+	// all classic AVRs will have a synchronous prescaler; instantiate it here
+	AVR8_CLASSIC_10BIT_PRESCALER(config, m_synchronous_prescaler, 0);
+
 }
 
-#if 0
 void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
 {
 	// Timer 0 basic implementation is the same across the classic megaAVR lineup,
 	// but signal routing differs. Each subclass device_add_mconfig() is responsible
 	// for routing them.
-	AVR8_CLASSIC_MEGAAVR_TIMER_0(m_timer_0);
-	m_timer_0->set_tov_int_cb(NAME([] (uint8_t data) { set_interrupt_line(INTIDX_TOV0, data); }));
-	m_timer_0->set_ocf_a_int_cb(NAME([] (uint8_t data) { set_interrupt_line(INTIDX_OCF0A, data); }));
-	m_timer_0->set_ocf_b_int_cb(NAME([] (uint8_t data) { set_interrupt_line(INTIDX_OCF0B, data); }));
-
+	AVR8_CLASSIC_MEGAAVR_TIMER_0(config, m_timer_0, 0);
+	m_timer_0->tov_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_TOV0>));
+	m_timer_0->ocf_a_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF0A>));
+	m_timer_0->ocf_b_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF0B>));
 }
 
 // ATMegax8 series (ATMega88, ATMega168, ATMega328)
@@ -1418,12 +1458,14 @@ void atmegax8_base_device::device_add_mconfig(machine_config &config)
 	megaavr_classic_base_device::device_add_mconfig(config);
 
 	// Timer 0 signals: OC0A = PD6, OC0B = PD5, T0 = PD4
-	m_timer_0->set_oc_a_w_cb(FUNC(atmegax8_base_device::set_gpio_bit<PORTD, 6>));
-	m_timer_0->set_oc_a_toggle_w_cb(FUNC(atmegax8_base_device::toggle_gpio_bit<PORTD, 6>));
-	m_timer_0->set_oc_b_w_cb(FUNC(atmegax8_base_device::set_gpio_bit<PORTD, 5>));
-	m_timer_0->set_oc_b_toggle_w_cb(FUNC(atmegax8_base_device::toggle_gpio_bit<PORTD, 5>));
-	// TODO: T0
+	m_timer_0->oc_a_w_cb().set(&atmegax8_base_device::set_gpio_bit<PORTD, 6>, "set_gpio_bit_pd6");
+	m_timer_0->oc_a_toggle_w_cb().set(&atmegax8_base_device::toggle_gpio_bit<PORTD, 6>, "toggle_gpio_bit_pd6");
+	m_timer_0->oc_b_w_cb().set(&atmegax8_base_device::set_gpio_bit<PORTD, 5>, "set_gpio_bit_pd5");
+	m_timer_0->oc_b_toggle_w_cb().set(&atmegax8_base_device::toggle_gpio_bit<PORTD, 5>, "toggle_gpio_bit_pd5");
+	// TODO: T0 pin
 
+#if 0
+	AVR8_CLASSIC_MEGAAVR_TIMER_1(config, m_timer1, 0);
 
 	// Timer 1: generic 16-bit
 	// Timer 1 signals: OC1A = PB1, OC1B = PB2, T1 = PD5
@@ -1432,52 +1474,57 @@ void atmegax8_base_device::device_add_mconfig(machine_config &config)
 	m_timer_1->set_oc_b_w_cb(FUNC(atmegax8_base_device::set_gpio_bit<PORTB, 2>));
 	m_timer_1->set_oc_b_toggle_w_cb(FUNC(atmegax8_base_device::toggle_gpio_bit<PORTB, 2>));
 	// TODO: T1
+#endif
 
 	// 10-bit prescaler feeds clk_io divisions to both timers 0 and 1 at the same time
-	AVR8_CLASSIC_10BIT_PRESCALER(m_timer_0_1_prescaler);
-	m_timer_0_1_prescaler->set_clk8_w_cb(NAME([] (uint8_t data)
+	m_synchronous_prescaler->clk8_w_cb().set([this] (uint8_t data)
 	{
 		m_timer_0->clk_div8_w(data);
-		m_timer_1->clk_div8_w(data);
-	}));
+		// m_timer_1->clk_div8_w(data);
+	});
 
-	m_timer_0_1_prescaler->set_clk64_w_cb(NAME([] (uint8_t data)
+	m_synchronous_prescaler->clk64_w_cb().set([this] (uint8_t data)
 	{
 		m_timer_0->clk_div64_w(data);
-		m_timer_1->clk_div64_w(data);
-	}));
+		// m_timer_1->clk_div64_w(data);
+	});
 
-	m_timer_0_1_prescaler->set_clk256_w_cb(NAME([] (uint8_t data)
+	m_synchronous_prescaler->clk256_w_cb().set([this] (uint8_t data)
 	{
 		m_timer_0->clk_div256_w(data);
-		m_timer_1->clk_div256_w(data);
-	}));
+		// m_timer_1->clk_div256_w(data);
+	});
 
-	m_timer_0_1_prescaler->set_clk1024_w_cb(NAME([] (uint8_t data)
+	m_synchronous_prescaler->clk1024_w_cb().set([this] (uint8_t data)
 	{
 		m_timer_0->clk_div1024_w(data);
-		m_timer_1->clk_div1024_w(data);
-	}));
-
+		// m_timer_1->clk_div1024_w(data);
+	});
 	
+#if 0
 	// Timer 2: 8-bit fake RTC
 	// Timer 2 signals: OC2A = PB2, OC2B = PD3
 	m_timer_2->set_oc_b_w_cb(FUNC(atmegax8_base_device::set_gpio_bit<PORTB, 2>));
 	m_timer_2->set_oc_b_toggle_w_cb(FUNC(atmegax8_base_device::toggle_gpio_bit<PORTB, 2>));
 	m_timer_2->set_oc_b_w_cb(FUNC(atmegax8_base_device::set_gpio_bit<PORTD, 3>));
 	m_timer_2->set_oc_b_toggle_w_cb(FUNC(atmegax8_base_device::toggle_gpio_bit<PORTD, 3>));
-
+#endif
 }
+
 
 // ATMegaxU4 series (ATMega16U4, ATMega32U4)
 void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 {
 	// Timer 0 signals: OC0A = PB7, OC0B = PD0, T0 = PD7
-	m_timer_0->set_oc_a_w_cb(FUNC(atmegaxu4_base_device::set_gpio_bit<PORTB, 7>));
-	m_timer_0->set_oc_a_toggle_w_cb(FUNC(atmegaxu4_base_device::toggle_gpio_bit<PORTB, 7>));
-	m_timer_0->set_oc_b_w_cb(FUNC(atmegaxu4_base_device::set_gpio_bit<PORTD, 0>));
-	m_timer_0->set_oc_b_toggle_w_cb(FUNC(atmegaxu4_base_device::toggle_gpio_bit<PORTD, 0>));
+	m_timer_0->oc_a_w_cb().set(&atmegaxu4_base_device::set_gpio_bit<PORTB, 7>, "set_gpio_bit_pb7");
+	m_timer_0->oc_a_toggle_w_cb().set(&atmegaxu4_base_device::toggle_gpio_bit<PORTB, 7>, "toggle_gpio_bit_pb7");
+	m_timer_0->oc_b_w_cb().set(&atmegaxu4_base_device::set_gpio_bit<PORTD, 0>, "set_gpio_bit_pd0");
+	m_timer_0->oc_b_toggle_w_cb().set(&atmegaxu4_base_device::toggle_gpio_bit<PORTD, 0>, "toggle_gpio_bit_pd0");
 
+	// TODO: enable signals
+	// TODO: add and route output compare modulator; OC0A and OC1C -> PB7.
+
+#if 0
 	// Timer 1: generic 16-bit
 	// Timer 1 signals: OC1A = PB5, OC1B = PB6, T1 = PD6
 	m_timer_1->set_oc_a_w_cb(FUNC(atmegaxu4_base_device::set_gpio_bit<PORTB, 5>));
@@ -1485,7 +1532,7 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 	m_timer_1->set_oc_b_w_cb(FUNC(atmegaxu4_base_device::set_gpio_bit<PORTB, 6>));
 	m_timer_1->set_oc_b_toggle_w_cb(FUNC(atmegaxu4_base_device::toggle_gpio_bit<PORTB, 6>));
 
-.	// Timer 3: 16-bit similar to timer 1. Important difference is no Tx pin.
+	// Timer 3: 16-bit similar to timer 1. Important difference is no Tx pin.
 	// Outputs: OC3A = PC6.
 	m_timer_3->set_oc_a_w_cb(FUNC(atmegaxu4_base_device::set_gpio_bit<PORTC, 6>));
 
@@ -1493,6 +1540,8 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 	// Timer 4: OC4A = PC7, /OC4A = PC6,
 	//          OC4B = PB6, /OC4B = PB5,
 	//          OC4D = PD7, /OC4D = PD6
+
+	// TODO: all of this is WRONG. /OC4x toggling differs per mode
 	m_timer_4->set_oc_a_w_cb( NAME[](uint8_t data)
 	{
 		set_gpio_bit<PORTC, 7>(data);
@@ -1509,7 +1558,6 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 		set_gpio_bit<PORTD, 6>(~data);
 	});
 	// TODO: toggle mode(s)
-
 
 	// The 10-bit prescaler can be routed to timers 0, 1, and 3, and it provides
 	// the /8, /64, /256 and /1024 taps similar to the ATMegax8 prescaler.
@@ -1542,12 +1590,36 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 		m_timer_3->clk_div1024_w(data);
 	}));
 
+#endif
 }
 
 // ATMegax0 series (ATMega640, ATMega1280, ATMega2560)
 void atmegax0_base_device::device_add_mconfig(machine_config &config)
 {
-	// TODO
+	// Timer 0 signals: OC0A = PB7, OC0B = PG5, T0 = PD7
+	m_timer_0->oc_a_w_cb().set(&atmegax0_base_device::set_gpio_bit<PORTB, 7>, "set_gpio_bit_pb7");
+	m_timer_0->oc_a_toggle_w_cb().set(&atmegax0_base_device::toggle_gpio_bit<PORTB, 7>, "toggle_gpio_bit_pb7");
+	m_timer_0->oc_b_w_cb().set(&atmegax0_base_device::set_gpio_bit<PORTG, 5>, "set_gpio_bit_pg5");
+	m_timer_0->oc_b_toggle_w_cb().set(&atmegax0_base_device::toggle_gpio_bit<PORTG, 5>, "toggle_gpio_bit_pg5");
+
+	// Timer 1 signals: OC1A = PB5, OC1B = PB6, OC1C = PB7, T1 = PD6
+
+	// Timer 2: 8-bit fake RTC
+	// Timer 2 signals: OC2A = PB4, OC2B = PH6
+	// TOSC1 = PG4, TOSC2 = PG3
+
+	// Timer 3 signals: OC3A = PE3, OC3B = PE4, OC3C = PE5, T3 = PE6
+
+	// Timer 4 signals: OC4A = PH3, OC4B = PH4, OC4C = PH5, T3 = PH7
+	// (PH7 is NOT a typo, PH6 is OC2B!)
+
+	// Timer 5 signals: OC5A = PL3, OC5B = PL4, OC5C = PL5, T5 = PL2	
+
+	// ATmega1281/2561 do have timers 4 and 5, but no ports to route them to
+
+	// Output compare modulator: OC0A / OC1C -> PB7
+
+	// Prescaler feeds timers 0,1,3,4,5
 }
 
 // ATMegax4 series (ATMega644, ATMega1284, ATMega2564)
@@ -1556,7 +1628,6 @@ void atmegax4_base_device::device_add_mconfig(machine_config &config)
 	// TODO
 }
 
-#endif
 
 //-------------------------------------------------
 //  memory_space_config - return the configuration
@@ -1685,6 +1756,12 @@ void avr8_base_device::set_interrupt_line(uint8_t intidx, uint8_t state)
 	}
 
 	m_int_statuses[intidx] = state != 0;
+}
+
+template<uint8_t IntIdx>
+void avr8_base_device::int_line_w(uint8_t state)
+{
+	set_interrupt_line(IntIdx, state);
 }
 
 void avr8_base_device::set_interrupt(uint8_t intidx)
@@ -3047,6 +3124,33 @@ void avr8_device<NumTimers>::change_spsr(uint8_t data)
 
 /*****************************************************************************/
 
+void megaavr_classic_base_device::gtccr_w(uint8_t data)
+{
+	m_tsm = BIT(data, 7);
+	m_psrasy = BIT(data, 1);
+	m_psrsync = BIT(data, 0);
+	
+	if (m_psrsync) m_synchronous_prescaler->sync_w(true);
+	// TODO: PSRASY hookup/routing
+	
+	// if TSM not active, PSRASY and PSRSYNC will automatically clear on the same cycle
+	if (!m_tsm)
+	{
+		m_psrasy = false;
+		m_psrsync = false;
+
+		m_synchronous_prescaler->sync_w(false);
+		// TODO: PSRASY
+	}
+}
+
+uint8_t megaavr_classic_base_device::gtccr_r()
+{
+	return (m_tsm << 7)    |
+		   (m_psrasy << 1) |
+		   (m_psrsync << 0);
+}
+
 template <int NumTimers>
 template <int Port>
 uint8_t avr8_device<NumTimers>::gpio_r()
@@ -3240,16 +3344,6 @@ void avr8_device<NumTimers>::tifr2_w(uint8_t data)
 	if (m_r[TIFR2] & TIFR2_OCF2A_MASK) clear_interrupt(INTIDX_OCF2A);
 	if (m_r[TIFR2] & TIFR2_OCF2B_MASK) clear_interrupt(INTIDX_OCF2B);
 	if (m_r[TIFR2] & TIFR2_TOV2_MASK) clear_interrupt(INTIDX_TOV2);
-}
-
-template <int NumTimers>
-void avr8_device<NumTimers>::gtccr_w(uint8_t data)
-{
-	if (data & GTCCR_PSRASY_MASK)
-	{
-		data &= ~GTCCR_PSRASY_MASK;
-		m_timer_prescale_count[2] = 0;
-	}
 }
 
 template <int NumTimers>
@@ -4254,6 +4348,24 @@ void avr8_device<NumTimers>::execute_run()
 					}
 				}
 			}
+
+			m_synchronous_prescaler->tick();
+
+			// TODO: if an async timer is present, its controller still needs to be notified
+			// of a clk_io cycle because the timer might be in synchronous mode
+	
+			for (int i = 0; i < m_timers.size(); i++)
+			{
+				if (m_timers[i])
+				{
+					// simulate full clk_io cycle; if timer is set to tick in sync with
+					// clk_io, it will be ticked on the rising edge
+					m_timers[i]->clk_io_w(1);
+					m_timers[i]->clk_io_w(0);
+				}
+			}
+
+			// old timer shit!!!! to be removed before the PR happens
 
 			m_timer_prescale_count[0]++;
 			if (m_timer_prescale_count[0] > m_timer_prescale[0])

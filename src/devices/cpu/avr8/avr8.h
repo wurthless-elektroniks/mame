@@ -745,7 +745,6 @@ protected:
 	// device-level overrides
 	virtual void device_start() override ATTR_COLD;
 	virtual void device_reset() override ATTR_COLD;
-	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
 
 	// device_execute_interface overrides
 	virtual uint32_t execute_min_cycles() const noexcept override { return 1; }
@@ -810,6 +809,10 @@ protected:
 
 	void set_interrupt_line(uint8_t intidx, uint8_t state);
 	
+	// for callback installation in devices; they can't call set_interrupt_line directly
+	template <uint8_t IntIdx>
+	void int_line_w(uint8_t state);
+
 	/**
 	 * Set interrupt flag for the given intidx. If the interrupt is also enabled,
 	 * set it to fire.
@@ -940,6 +943,10 @@ protected:
 
 // ======================> avr8_device
 
+/**
+ * TODO: rename this class to something like avr8_classic_base_device
+ * and kill the NumTimers template-ification
+ */
 template <int NumTimers>
 class avr8_device : public avr8_base_device
 {
@@ -988,6 +995,7 @@ protected:
 	// device-level overrides
 	virtual void device_start() override ATTR_COLD;
 	virtual void device_reset() override ATTR_COLD;
+	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
 
 	// device_execute_interface overrides
 	virtual void execute_run() override;
@@ -996,6 +1004,9 @@ protected:
 	void base_internal_map(address_map &map) ATTR_COLD;
 
 	// Miscellaneous registers
+
+	// TODO: which regs are common on the classic AVR8s?
+	// ones that are megaAVR-specific need to be moved out
 	void wdtcsr_w(uint8_t data);
 	void clkpr_w(uint8_t data);
 	void prr0_w(uint8_t data);
@@ -1044,9 +1055,11 @@ protected:
 	// diffs a freshly-sampled port level against the last-known one, raising PCINT/INT0/INT1 as needed
 	template <int Port> void latch_pin_change(uint8_t state);
 
-	
-	template <int Port, int Bit> void toggle_gpio_bit(uint8_t _); // value written doesn't matter
-	template <int Port, int Bit> void set_gpio_bit(uint8_t data);
+	template <int Port, int Bit>
+	void toggle_gpio_bit(uint8_t _); // value written doesn't matter
+
+	template <int Port, int Bit>
+	void set_gpio_bit(uint8_t data);
 	
 	// ADC
 	uint8_t adcl_r();
@@ -1090,8 +1103,9 @@ protected:
 	uint8_t m_spi_rx_shift;
 
 	// timers
-	void gtccr_w(uint8_t data);
-
+	required_device<avr8_10bit_prescaler_device> m_synchronous_prescaler; // synchronous prescaler for timers ticking in sync with it
+	optional_device_array<avr8_base_timer_device, 6> m_timers; // optional, because some timers will almost certainly not be present
+	
 	template <int Timer> void update_timer_clock_source(uint8_t selection, const uint8_t old_clock_select);
 	void update_timer_waveform_gen_mode(uint8_t timer, uint8_t mode);
 
@@ -1303,6 +1317,43 @@ protected:
 	void timer5_tick();
 };
 
+// ======================> megaavr_classic_base_device
+
+/**
+ * This is the common foundation for the classic megaAVRs,
+ * except for the ATMega8/16/32 series, which use different data address maps
+ * and registers closer to the classic tinyAVRs.
+ */
+class megaavr_classic_base_device : public avr8_device<8>
+{
+
+protected:
+	megaavr_classic_base_device(const machine_config &mconfig,
+								const char *tag,
+								device_t *owner,
+								uint32_t clock,
+								const device_type type,
+								uint32_t address_mask,
+								address_map_constructor internal_map);
+
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
+
+	void megaavr_classic_base_internal_map(address_map &map);
+
+	// All sub-devices will have the same Timer 0 implementation mapped at the same memory locations
+	required_device<avr8_megaavr_timer_0_device> m_timer_0;
+
+	// GTCCR same on all sub-devices
+	void gtccr_w(uint8_t data);
+	uint8_t gtccr_r();
+
+	bool m_tsm;
+	bool m_psrasy;
+	bool m_psrsync;
+};
+
 // device type definition
 DECLARE_DEVICE_TYPE(ATMEGA88,   atmega88_device)
 DECLARE_DEVICE_TYPE(ATMEGA168,  atmega168_device)
@@ -1313,9 +1364,34 @@ DECLARE_DEVICE_TYPE(ATMEGA1284, atmega1284_device)
 DECLARE_DEVICE_TYPE(ATMEGA1280, atmega1280_device)
 DECLARE_DEVICE_TYPE(ATMEGA2560, atmega2560_device)
 
+
+///////////////////////////////////////////////////////////////
+// Classic ATMegax8 series devices
+///////////////////////////////////////////////////////////////
+
+class atmegax8_base_device : public megaavr_classic_base_device
+{
+protected:
+	// construction/destruction
+	atmegax8_base_device(const machine_config &mconfig,
+						 const char *tag,
+						 device_t *owner,
+						 uint32_t clock,
+						 const device_type type,
+						 uint32_t address_mask,
+						 address_map_constructor internal_map);
+
+
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
+
+	// TODO: add timers 1, 2
+};
+
 // ======================> atmega88_device
 
-class atmega88_device : public avr8_device<3>
+class atmega88_device : public atmegax8_base_device
 {
 public:
 	// construction/destruction
@@ -1323,13 +1399,15 @@ public:
 	void atmega88_internal_map(address_map &map) ATTR_COLD;
 
 protected:
+	// TODO: pcint_group unification in atmegax8_base_device
 	virtual bool pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group) const override;
+
 	virtual uint8_t vector_size_in_words() const override { return 1; }
 };
 
 // ======================> atmega168_device
 
-class atmega168_device : public avr8_device<3>
+class atmega168_device : public atmegax8_base_device
 {
 public:
 	// construction/destruction
@@ -1338,12 +1416,13 @@ public:
 	void atmega168_internal_map(address_map &map) ATTR_COLD;
 
 protected:
+	// TODO: pcint_group unification in atmegax8_base_device
 	virtual bool pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group) const override;
 };
 
 // ======================> atmega328_device
 
-class atmega328_device : public avr8_device<3>
+class atmega328_device : public atmegax8_base_device
 {
 public:
 	// construction/destruction
@@ -1352,13 +1431,38 @@ public:
 	void atmega328_internal_map(address_map &map) ATTR_COLD;
 
 protected:
+	// TODO: pcint_group unification in atmegax8_base_device
 	virtual bool pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group) const override;
+
 	virtual uint8_t eearh_mask() const override { return 0x03; } // 1024-byte EEPROM
 };
 
-// ======================> atmega32u4_device
 
-class atmega32u4_device : public avr8_device<4>
+///////////////////////////////////////////////////////////////
+// Classic ATMegaxU4 series devices
+///////////////////////////////////////////////////////////////
+
+class atmegaxu4_base_device : public megaavr_classic_base_device
+{
+protected:
+	// construction/destruction
+	atmegaxu4_base_device(const machine_config &mconfig,
+						  const char *tag,
+						  device_t *owner,
+						  uint32_t clock,
+						  const device_type type,
+						  uint32_t address_mask,
+						  address_map_constructor internal_map);
+
+
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
+
+	// TODO: add timers 1, 3, 4
+};
+
+class atmega32u4_device : public atmegaxu4_base_device
 {
 public:
 	// construction/destruction
@@ -1378,9 +1482,33 @@ protected:
 	virtual uint8_t eearh_mask() const override { return 0x03; } // 1024-byte EEPROM
 };
 
+
+///////////////////////////////////////////////////////////////
+// Classic ATMegax4 series devices
+///////////////////////////////////////////////////////////////
+
+class atmegax4_base_device : public megaavr_classic_base_device
+{
+protected:
+	// construction/destruction
+	atmegax4_base_device(const machine_config &mconfig,
+						  const char *tag,
+						  device_t *owner,
+						  uint32_t clock,
+						  const device_type type,
+						  uint32_t address_mask,
+						  address_map_constructor internal_map);
+
+
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
+
+};
+
 // ======================> atmega644_device
 
-class atmega644_device : public avr8_device<3>
+class atmega644_device : public atmegax4_base_device
 {
 public:
 	// construction/destruction
@@ -1402,7 +1530,7 @@ protected:
 
 // ======================> atmega1284_device
 
-class atmega1284_device : public avr8_device<3>
+class atmega1284_device : public atmegax4_base_device
 {
 public:
 	// construction/destruction
@@ -1422,9 +1550,36 @@ protected:
 	virtual uint8_t eearh_mask() const override { return 0x0f; } // 4096-byte EEPROM
 };
 
+
+///////////////////////////////////////////////////////////////
+// Classic ATMegax0 series devices
+// Not to be confused with the modern megaAVR 0-series
+///////////////////////////////////////////////////////////////
+
+class atmegax0_base_device : public megaavr_classic_base_device
+{
+protected:
+	// construction/destruction
+	atmegax0_base_device(const machine_config &mconfig,
+						  const char *tag,
+						  device_t *owner,
+						  uint32_t clock,
+						  const device_type type,
+						  uint32_t address_mask,
+						  address_map_constructor internal_map);
+
+
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
+
+	// TODO: add timers 1, 3, 4, 5
+};
+
+
 // ======================> atmega1280_device
 
-class atmega1280_device : public avr8_device<6>
+class atmega1280_device : public atmegax0_base_device
 {
 public:
 	// construction/destruction
@@ -1445,7 +1600,7 @@ protected:
 
 // ======================> atmega2560_device
 
-class atmega2560_device : public avr8_device<6>
+class atmega2560_device : public atmegax0_base_device
 {
 public:
 	// construction/destruction
