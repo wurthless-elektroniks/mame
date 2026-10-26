@@ -890,6 +890,15 @@ void atmega2560_device::atmega2560_internal_map(address_map &map)
 
 
 //-------------------------------------------------
+//  atmegax8_base_device - constructor
+//-------------------------------------------------
+
+atmegax8_base_device::atmegax8_base_device(const machine_config &mconfig, const char *tag, device_t *owner,uint32_t clock, const device_type type, uint32_t address_mask, address_map_constructor internal_map)
+	: megaavr_classic_base_device(mconfig, tag, owner, clock, type, address_mask, internal_map)
+{
+}
+
+//-------------------------------------------------
 //  atmega88_device - constructor
 //-------------------------------------------------
 
@@ -928,6 +937,15 @@ atmega328_device::atmega328_device(const machine_config &mconfig, const char *ta
 }
 
 //-------------------------------------------------
+//  atmegaxu4_base_device - constructor
+//-------------------------------------------------
+
+atmegaxu4_base_device::atmegaxu4_base_device(const machine_config &mconfig, const char *tag, device_t *owner,uint32_t clock, const device_type type, uint32_t address_mask, address_map_constructor internal_map)
+	: megaavr_classic_base_device(mconfig, tag, owner, clock, type, address_mask, internal_map)
+{
+}
+
+//-------------------------------------------------
 //  atmega32u4_device - constructor
 //-------------------------------------------------
 
@@ -936,6 +954,14 @@ atmega32u4_device::atmega32u4_device(const machine_config &mconfig, const char *
 {
 }
 
+//-------------------------------------------------
+//  atmegax4_base_device - constructor
+//-------------------------------------------------
+
+atmegax4_base_device::atmegax4_base_device(const machine_config &mconfig, const char *tag, device_t *owner,uint32_t clock, const device_type type, uint32_t address_mask, address_map_constructor internal_map)
+	: megaavr_classic_base_device(mconfig, tag, owner, clock, type, address_mask, internal_map)
+{
+}
 
 //-------------------------------------------------
 //  atmega644_device - constructor
@@ -952,6 +978,16 @@ atmega644_device::atmega644_device(const machine_config &mconfig, const char *ta
 
 atmega1284_device::atmega1284_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock)
 	: atmegax4_base_device(mconfig, tag, owner, clock, ATMEGA1284, 0xffff, address_map_constructor(FUNC(atmega1284_device::atmega1284_internal_map), this))
+{
+}
+
+
+//-------------------------------------------------
+//  atmegax0_base_device - constructor
+//-------------------------------------------------
+
+atmegax0_base_device::atmegax0_base_device(const machine_config &mconfig, const char *tag, device_t *owner,uint32_t clock, const device_type type, uint32_t address_mask, address_map_constructor internal_map)
+	: megaavr_classic_base_device(mconfig, tag, owner, clock, type, address_mask, internal_map)
 {
 }
 
@@ -1334,6 +1370,37 @@ void avr8_device<NumTimers>::device_start()
 	save_item(NAME(m_spi_rx_shift));
 }
 
+void megaavr_classic_base_device::device_start()
+{
+	avr8_device<3>::device_start();
+
+	save_item(NAME(m_tsm));
+	save_item(NAME(m_psrasy));
+	save_item(NAME(m_psrsync));
+}
+
+void atmegax8_base_device::device_start()
+{
+	megaavr_classic_base_device::device_start();
+}
+
+void atmegax0_base_device::device_start()
+{
+	megaavr_classic_base_device::device_start();
+}
+
+void atmegax4_base_device::device_start()
+{
+	megaavr_classic_base_device::device_start();
+}
+
+void atmegaxu4_base_device::device_start()
+{
+	megaavr_classic_base_device::device_start();
+}
+
+
+
 //-------------------------------------------------
 //  device_reset - reset the device
 //-------------------------------------------------
@@ -1425,6 +1492,36 @@ void avr8_device<NumTimers>::device_reset()
 	}
 
 	m_ocr2_not_reached_yet = true;
+}
+
+void megaavr_classic_base_device::device_reset()
+{
+	avr8_device<3>::device_reset();
+
+	// assuming the prescalers will reset their sync flag for us
+	m_tsm = false;
+	m_psrasy = false;
+	m_psrsync = false;
+}
+
+void atmegax8_base_device::device_reset()
+{
+	megaavr_classic_base_device::device_reset();
+}
+
+void atmegax0_base_device::device_reset()
+{
+	megaavr_classic_base_device::device_reset();
+}
+
+void atmegax4_base_device::device_reset()
+{
+	megaavr_classic_base_device::device_reset();
+}
+
+void atmegaxu4_base_device::device_reset()
+{
+	megaavr_classic_base_device::device_reset();
 }
 
 //-------------------------------------------------

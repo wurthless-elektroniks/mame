@@ -1324,7 +1324,7 @@ protected:
  * except for the ATMega8/16/32 series, which use different data address maps
  * and registers closer to the classic tinyAVRs.
  */
-class megaavr_classic_base_device : public avr8_device<8>
+class megaavr_classic_base_device : public avr8_device<3>
 {
 
 protected:
@@ -1345,10 +1345,11 @@ protected:
 	// All sub-devices will have the same Timer 0 implementation mapped at the same memory locations
 	required_device<avr8_megaavr_timer_0_device> m_timer_0;
 
-	// GTCCR same on all sub-devices
+	// GTCCR on most of the classic megaAVRs is pretty much the same
 	void gtccr_w(uint8_t data);
 	uint8_t gtccr_r();
 
+	// GTCCR flags, MUST BE SAVESTATE-ABLE
 	bool m_tsm;
 	bool m_psrasy;
 	bool m_psrsync;

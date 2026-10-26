@@ -1030,6 +1030,21 @@ void avr8_generic_t0_timer_device::ocr_a_w(uint8_t data)
     };
 }
 
+uint8_t avr8_generic_t0_timer_device::ocr_a_r()
+{
+    switch (m_wgm)
+    {
+        case GENERIC_TIMER0_WGM_FAST_PWM:
+        case GENERIC_TIMER0_WGM_FAST_PWM_OCR0A:
+        case GENERIC_TIMER0_WGM_PWM_BOTTOM:
+        case GENERIC_TIMER0_WGM_PWM_OCR0A:
+            return m_ocr_a_buf;
+
+        default:
+            return m_ocr_a;
+    }
+}
+
 void avr8_generic_t0_timer_device::ocr_b_w(uint8_t data)
 {
     switch (m_wgm)
@@ -1044,6 +1059,21 @@ void avr8_generic_t0_timer_device::ocr_b_w(uint8_t data)
             m_ocr_b = data;
             break;
     };
+}
+
+uint8_t avr8_generic_t0_timer_device::ocr_b_r()
+{
+    switch (m_wgm)
+    {
+        case GENERIC_TIMER0_WGM_FAST_PWM:
+        case GENERIC_TIMER0_WGM_FAST_PWM_OCR0A:
+        case GENERIC_TIMER0_WGM_PWM_BOTTOM:
+        case GENERIC_TIMER0_WGM_PWM_OCR0A:
+            return m_ocr_b_buf;
+
+        default:
+            return m_ocr_b;
+    }
 }
 
 void avr8_generic_t0_timer_device::tcnt_w(uint8_t data)
