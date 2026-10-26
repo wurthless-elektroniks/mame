@@ -114,6 +114,13 @@
 #include "emu.h"
 #include "avr8timers_classic.h"
 
+#define LOG_TIMER0          (1U << 0)
+#define LOG_TIMER0_TICK     (1U << 1)
+
+#define VERBOSE             (LOG_TIMER0) // | LOG_TIMER0_TICK)
+//#define LOG_OUTPUT_FUNC     osd_printf_info
+#include "logmacro.h"
+
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_0, avr8_generic_t0_timer_device, "cavr8gent0", "Classic AVR8 Generic Timer 0");
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_TIMER_0, avr8_megaavr_timer_0_device,  "cmegaavrt0", "Classic megaAVR Timer 0");
 
@@ -508,7 +515,12 @@ void avr8_generic_t0_timer_device::tick()
         m_t = m_t_last;
     }
 
-    if (m_cs == GENERIC_TIMER0_CS_DISABLED) return;
+    if (m_cs == GENERIC_TIMER0_CS_DISABLED)
+    {
+        LOGMASKED(LOG_TIMER0_TICK, "%s: timer is disabled (m_cs == GENERIC_TIMER0_CS_DISABLED), doing nothing.\n", machine().describe_context());
+        return;
+    }
+
     if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV8 && !m_clk_div8) return;
     if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV64 && !m_clk_div64) return;
     if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV256 && !m_clk_div256) return;
@@ -516,6 +528,8 @@ void avr8_generic_t0_timer_device::tick()
     if (m_cs == GENERIC_TIMER0_CS_T0_FALL && !t_falling) return;
     if (m_cs == GENERIC_TIMER0_CS_T0_RISE && !t_rising) return;
     // GENERIC_TIMER0_CS_DIRECT = just fall through
+
+    LOGMASKED(LOG_TIMER0_TICK, "%s: running wgm callback %d\n", machine().describe_context(), m_wgm);
 
     m_wgm_cbs[m_wgm]();
     m_no_compare_this_cycle = false; // because the current timer cycle has ended
@@ -1101,6 +1115,8 @@ void avr8_generic_t0_timer_device::force_oc0b()
 
 void avr8_generic_t0_timer_device::tccr_b_w(uint8_t data)
 {
+    LOGMASKED(LOG_TIMER0, "tccr_b_w: %02x\n", data);
+
     if (BIT(data,7)) force_oc0a();
     if (BIT(data,6)) force_oc0b();
     cs_w(BIT(data,0,3));

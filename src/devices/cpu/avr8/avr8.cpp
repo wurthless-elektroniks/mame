@@ -661,7 +661,6 @@ void avr8_device<NumTimers>::base_internal_map(address_map &map)
 	map(0x00c2, 0x00c2).w(FUNC(avr8_device::ucsr0c_w));
 }
 
-
 void megaavr_classic_base_device::megaavr_classic_base_internal_map(address_map &map)
 {
 	// Most classic megaAVRs use this map.
@@ -673,36 +672,199 @@ void megaavr_classic_base_device::megaavr_classic_base_internal_map(address_map 
 	// it should cause a logerror().
 	map(0x0000, 0x001f).ram().share(m_r);
 
-	// GTCCR register is common to all classic megaAVRs; ATMega8/16/32 and the ATTinys don't have it
+	// 0x0020-0x0034 all reserved for ports; install those in sub-devices only.
+	
+	map(0x0035, 0x0035).rw(m_timer_0, &avr8_megaavr_timer_0_device::tifr_r, "timer_0_tifr_r", &avr8_megaavr_timer_0_device::tifr_w, "timer_0_tifr_w");
+	
+	// 0x0036-0x003a: all reserved for other timers
+	
+	map(0x003b, 0x003b).rw(FUNC(megaavr_classic_base_device::reg_r<PCIFR>), FUNC(megaavr_classic_base_device::pcifr_w));
+	map(0x003c, 0x003c).rw(FUNC(megaavr_classic_base_device::reg_r<EIFR>), FUNC(megaavr_classic_base_device::eifr_w));
+	map(0x003d, 0x003d).rw(FUNC(megaavr_classic_base_device::reg_r<EIMSK>), FUNC(megaavr_classic_base_device::reg_w<EIMSK>));
+	map(0x003e, 0x003e).rw(FUNC(megaavr_classic_base_device::reg_r<GPIOR0>), FUNC(megaavr_classic_base_device::gpior0_w));
+	map(0x003f, 0x003f).rw(FUNC(megaavr_classic_base_device::reg_r<EECR>), FUNC(megaavr_classic_base_device::eecr_w));
+	map(0x0040, 0x0040).rw(FUNC(megaavr_classic_base_device::reg_r<EEDR>), FUNC(megaavr_classic_base_device::reg_w<EEDR>));
+	map(0x0041, 0x0041).rw(FUNC(megaavr_classic_base_device::reg_r<EEARL>), FUNC(megaavr_classic_base_device::reg_w<EEARL>));
+	map(0x0042, 0x0042).rw(FUNC(megaavr_classic_base_device::reg_r<EEARH>), FUNC(megaavr_classic_base_device::reg_w<EEARH>));
+
+	// this GTCCR register is common to all classic megaAVRs; ATMega8/16/32 and the ATTinys don't have it
 	map(0x0043, 0x0043).rw(FUNC(megaavr_classic_base_device::gtccr_r), FUNC(megaavr_classic_base_device::gtccr_w));
 
-	// Timer 0 is the same across all classic/legacy megaAVR devices 
-	map(0x0035, 0x0035).rw(m_timer_0, &avr8_megaavr_timer_0_device::tifr_r, "timer_0_tifr_r", &avr8_megaavr_timer_0_device::tifr_w, "timer_0_tifr_w");
+	// most Timer 0 control registers
 	map(0x0044, 0x0044).rw(m_timer_0, &avr8_megaavr_timer_0_device::tccr_a_r, "timer_0_tccr_a_r", &avr8_megaavr_timer_0_device::tccr_a_w, "timer_0_tccr_a_w");
 	map(0x0045, 0x0045).rw(m_timer_0, FUNC(avr8_megaavr_timer_0_device::tccr_b_r), FUNC(avr8_megaavr_timer_0_device::tccr_b_w));
 	map(0x0046, 0x0046).rw(m_timer_0, FUNC(avr8_megaavr_timer_0_device::tcnt_r), FUNC(avr8_megaavr_timer_0_device::tcnt_w)); 
 	map(0x0047, 0x0047).rw(m_timer_0, FUNC(avr8_megaavr_timer_0_device::ocr_a_r), FUNC(avr8_megaavr_timer_0_device::ocr_a_w));
 	map(0x0048, 0x0048).rw(m_timer_0, FUNC(avr8_megaavr_timer_0_device::ocr_b_r), FUNC(avr8_megaavr_timer_0_device::ocr_b_w));
-	map(0x006e, 0x006e).rw(m_timer_0, FUNC(avr8_megaavr_timer_0_device::timsk_r), FUNC(avr8_megaavr_timer_0_device::timsk_w));
-}
 
-#if 0
+	// 0x0049: reserved
+	// on the xU4 series, that's where the PLL control register is
+
+	map(0x004a, 0x004a).rw(FUNC(megaavr_classic_base_device::reg_r<GPIOR1>), FUNC(megaavr_classic_base_device::gpior1_w));
+	map(0x004b, 0x004b).rw(FUNC(megaavr_classic_base_device::reg_r<GPIOR2>), FUNC(megaavr_classic_base_device::gpior2_w));
+	map(0x004c, 0x004c).rw(FUNC(megaavr_classic_base_device::reg_r<SPCR>), FUNC(megaavr_classic_base_device::spcr_w));
+	map(0x004d, 0x004d).rw(FUNC(megaavr_classic_base_device::reg_r<SPSR>), FUNC(megaavr_classic_base_device::spsr_w));
+	map(0x004e, 0x004e).rw(FUNC(megaavr_classic_base_device::reg_r<SPDR>), FUNC(megaavr_classic_base_device::spdr_w));
+
+	// 0x004f: reserved
+
+	map(0x0050, 0x0050).rw(FUNC(megaavr_classic_base_device::reg_r<ACSR>), FUNC(megaavr_classic_base_device::reg_w<ACSR>));
+
+	// 0x0051: OCDR (not installed on all devices)
+
+	// 0x0052: PLLFREQ (xU4 only)
+
+	map(0x0053, 0x0053).rw(FUNC(megaavr_classic_base_device::reg_r<SMCR>), FUNC(megaavr_classic_base_device::reg_w<SMCR>));
+	map(0x0054, 0x0054).rw(FUNC(megaavr_classic_base_device::reg_r<MCUSR>), FUNC(megaavr_classic_base_device::reg_w<MCUSR>));
+	map(0x0055, 0x0055).rw(FUNC(megaavr_classic_base_device::reg_r<MCUCR>), FUNC(megaavr_classic_base_device::reg_w<MCUCR>));
+
+	// 0x0056: reserved
+
+	// 0x0057: SPMCSR (to be brought out to dedicated flash controller device later)
+	map(0x0057, 0x0057).rw(FUNC(megaavr_classic_base_device::reg_r<SPMCSR>), FUNC(megaavr_classic_base_device::reg_w<SPMCSR>));
+
+	// 0x0058, 0x0059, 0x005a: reserved
+
+	// 0x005b: RAMPZ, on devices with more than 64kbytes flash space
+
+	// 0x005c: EIND (not on all devices)
+
+	map(0x005d, 0x005d).rw(FUNC(megaavr_classic_base_device::reg_r<SPL>), FUNC(megaavr_classic_base_device::reg_w<SPL>));
+	map(0x005e, 0x005e).rw(FUNC(megaavr_classic_base_device::reg_r<SPH>), FUNC(megaavr_classic_base_device::reg_w<SPH>));
+	map(0x005f, 0x005f).rw(FUNC(megaavr_classic_base_device::reg_r<SREG>), FUNC(megaavr_classic_base_device::reg_w<SREG>));
+
+	map(0x0060, 0x0060).rw(FUNC(megaavr_classic_base_device::reg_r<WDTCSR>), FUNC(megaavr_classic_base_device::wdtcsr_w));
+	map(0x0061, 0x0061).rw(FUNC(megaavr_classic_base_device::reg_r<CLKPR>), FUNC(megaavr_classic_base_device::clkpr_w));
+
+	// 0x0062, 0x0063: reserved
+
+	// 0x0064: PRR0 (note: bit layout differs between device types!)
+	map(0x0064, 0x0064).rw(FUNC(megaavr_classic_base_device::reg_r<PRR0>), FUNC(megaavr_classic_base_device::prr0_w));
+
+	// 0x0065: PRR1 (not on all devices)
+	
+	map(0x0066, 0x0066).rw(FUNC(megaavr_classic_base_device::reg_r<OSCCAL>), FUNC(megaavr_classic_base_device::osccal_w));
+
+	// 0x0067: RCCTRL (not on all devices)
+
+	map(0x0068, 0x0068).rw(FUNC(megaavr_classic_base_device::reg_r<PCICR>), FUNC(megaavr_classic_base_device::pcicr_w));
+	map(0x0069, 0x0069).rw(FUNC(megaavr_classic_base_device::reg_r<EICRA>), FUNC(megaavr_classic_base_device::eicra_w));
+	
+	// 0x006a: EICRB (not on all devices)
+
+	map(0x006b, 0x006b).rw(FUNC(megaavr_classic_base_device::reg_r<PCMSK0>), FUNC(megaavr_classic_base_device::pcmsk0_w));
+
+	// 0x006c: PMSK1 (not on all devices)
+	// 0x006d: PMSK2 (not on all devices)
+	
+	map(0x006e, 0x006e).rw(m_timer_0, FUNC(avr8_megaavr_timer_0_device::timsk_r), FUNC(avr8_megaavr_timer_0_device::timsk_w));
+
+	// 0x006f: TIMSK1 (not on all devices)
+	// 0x0070: TIMSK2 (not on all devices)
+	// 0x0071: TIMSK3 (not on all devices)
+	// 0x0072: TIMSK4 (not on all devices)
+	// 0x0073: TIMSK5 (not on all devices)
+			
+	// 0x0074: XMCRA (not on all devices)
+	// 0x0075: XMCRB (not on all devices)
+
+	// 0x0076: reserved
+	// 0x0077: reserved
+
+	map(0x0078, 0x0078).rw(FUNC(megaavr_classic_base_device::adcl_r), FUNC(megaavr_classic_base_device::adcl_w));
+	map(0x0079, 0x0079).rw(FUNC(megaavr_classic_base_device::adch_r), FUNC(megaavr_classic_base_device::adch_w));
+	map(0x007a, 0x007a).rw(FUNC(megaavr_classic_base_device::reg_r<ADCSRA>), FUNC(megaavr_classic_base_device::adcsra_w));
+	map(0x007b, 0x007b).rw(FUNC(megaavr_classic_base_device::reg_r<ADCSRB>), FUNC(megaavr_classic_base_device::adcsrb_w));
+	map(0x007c, 0x007c).rw(FUNC(megaavr_classic_base_device::reg_r<ADMUX>), FUNC(megaavr_classic_base_device::admux_w));
+	
+	// 0x007d: DIDR2 (not on all devices)
+	map(0x007e, 0x007e).rw(FUNC(megaavr_classic_base_device::reg_r<DIDR0>), FUNC(megaavr_classic_base_device::didr0_w));
+	map(0x007f, 0x007f).rw(FUNC(megaavr_classic_base_device::reg_r<DIDR1>), FUNC(megaavr_classic_base_device::didr1_w));
+
+	// 0x0080-0x008d: Timer 1 control registers (not on all devices)
+	// 0x008e, 0x008f: reserved
+
+	// 0x0090-0x009d: Timer 3 control registers (not on all devices)
+	// 0x009e, 0x009f: reserved
+
+	// 0x00a0-0x00ad: Timer 4 control registers (not on all devices)
+	// (Note that this is for 16-bit timer 4s, not the high-speed timer on the xU4 devices)
+
+	// 0x00ae, 0x00af: reserved
+
+	// 0x00b0-0x00b4: Timer 2 control registers (not on all devices)
+	// 0x00b5: reserved
+	// 0x00b6: ASSR for timer 2 controller (not on all devices)
+	// 0x00b7: reserved
+
+	map(0x00b8, 0x00b8).rw(FUNC(megaavr_classic_base_device::reg_r<TWBR>), FUNC(megaavr_classic_base_device::twbr_w));
+	map(0x00b9, 0x00b9).rw(FUNC(megaavr_classic_base_device::twsr_r), FUNC(megaavr_classic_base_device::twsr_w));
+	map(0x00ba, 0x00ba).rw(FUNC(megaavr_classic_base_device::reg_r<TWAR>), FUNC(megaavr_classic_base_device::twar_w));
+	map(0x00bb, 0x00bb).rw(FUNC(megaavr_classic_base_device::reg_r<TWDR>), FUNC(megaavr_classic_base_device::twdr_w));
+	map(0x00bc, 0x00bc).rw(FUNC(megaavr_classic_base_device::reg_r<TWCR>), FUNC(megaavr_classic_base_device::twcr_w));
+	map(0x00bd, 0x00bd).rw(FUNC(megaavr_classic_base_device::reg_r<TWAMR>), FUNC(megaavr_classic_base_device::twamr_w));
+
+	// space at 0x00be and above varies wildly between devices, so nothing else can be installed here.
+}
 
 void atmegax8_base_device::atmegax8_base_internal_map(address_map &map)
 {
-	megaavr_classic_base_device::megaavr_base_internal_map(map);
+	megaavr_classic_base_internal_map(map);
 
 	// x8 series has ports PB, PC, PD
-	map(0x0023, 0x0023).r(FUNC(avr8_device::pin_r<1>));
-	map(0x0024, 0x0024).w(FUNC(avr8_device::ddr_w<GPIOB>));
-	map(0x0025, 0x0025).rw(FUNC(avr8_device::gpio_r<GPIOB>), FUNC(avr8_device::port_w<GPIOB>));
-	map(0x0026, 0x0026).r(FUNC(avr8_device::pin_r<2>));
-	map(0x0027, 0x0027).w(FUNC(avr8_device::ddr_w<GPIOC>));
-	map(0x0028, 0x0028).rw(FUNC(avr8_device::gpio_r<GPIOC>), FUNC(avr8_device::port_w<GPIOC>));
-	map(0x0029, 0x0029).r(FUNC(avr8_device::pin_r<3>));
-	map(0x002a, 0x002a).w(FUNC(avr8_device::ddr_w<GPIOD>));
-	map(0x002b, 0x002b).rw(FUNC(avr8_device::gpio_r<GPIOD>), FUNC(avr8_device::port_w<GPIOD>));
+	map(0x0023, 0x0023).r(FUNC(atmegax8_base_device::pin_r<1>));
+	map(0x0024, 0x0024).w(FUNC(atmegax8_base_device::ddr_w<GPIOB>));
+	map(0x0025, 0x0025).rw(FUNC(atmegax8_base_device::gpio_r<GPIOB>), FUNC(atmegax8_base_device::port_w<GPIOB>));
+	map(0x0026, 0x0026).r(FUNC(atmegax8_base_device::pin_r<2>));
+	map(0x0027, 0x0027).w(FUNC(atmegax8_base_device::ddr_w<GPIOC>));
+	map(0x0028, 0x0028).rw(FUNC(atmegax8_base_device::gpio_r<GPIOC>), FUNC(atmegax8_base_device::port_w<GPIOC>));
+	map(0x0029, 0x0029).r(FUNC(atmegax8_base_device::pin_r<3>));
+	map(0x002a, 0x002a).w(FUNC(atmegax8_base_device::ddr_w<GPIOD>));
+	map(0x002b, 0x002b).rw(FUNC(atmegax8_base_device::gpio_r<GPIOD>), FUNC(atmegax8_base_device::port_w<GPIOD>));
 
+	// TODO: switch timers 1 and 2 to device implementations.
+	// timer 0 is only implemented in a device at the moment.
+
+	map(0x0036, 0x0036).rw(FUNC(atmegax8_base_device::reg_r<TIFR1>), FUNC(atmegax8_base_device::tifr1_w));
+	map(0x0037, 0x0037).rw(FUNC(atmegax8_base_device::reg_r<TIFR2>), FUNC(atmegax8_base_device::tifr2_w));
+
+	map(0x006c, 0x006c).rw(FUNC(atmegax8_base_device::reg_r<PCMSK1>), FUNC(atmegax8_base_device::pcmsk1_w));
+	map(0x006d, 0x006d).rw(FUNC(atmegax8_base_device::reg_r<PCMSK2>), FUNC(atmegax8_base_device::pcmsk2_w));
+
+	// 0x006e: TIMSK0
+	map(0x006f, 0x006f).rw(FUNC(atmegax8_base_device::reg_r<TIMSK1>), FUNC(atmegax8_base_device::timsk1_w));
+	map(0x0070, 0x0070).rw(FUNC(atmegax8_base_device::reg_r<TIMSK2>), FUNC(atmegax8_base_device::timsk2_w));
+
+	// 0x0071-0x0077: reserved
+	
+	// timer 1 on x8 series only has 2 compare channels
+	map(0x0080, 0x0080).rw(FUNC(atmegax8_base_device::reg_r<TCCR1A>), FUNC(atmegax8_base_device::tccr1a_w));
+	map(0x0081, 0x0081).rw(FUNC(atmegax8_base_device::reg_r<TCCR1B>), FUNC(atmegax8_base_device::tccr1b_w));
+	map(0x0082, 0x0082).rw(FUNC(atmegax8_base_device::reg_r<TCCR1C>), FUNC(atmegax8_base_device::tccr1c_w));
+	// 0x0083: reserved
+	map(0x0084, 0x0084).rw(FUNC(atmegax8_base_device::reg_r<TCNT1L>), FUNC(atmegax8_base_device::reg_w<TCNT1L>));
+	map(0x0085, 0x0085).rw(FUNC(atmegax8_base_device::reg_r<TCNT1H>), FUNC(atmegax8_base_device::reg_w<TCNT1H>));
+	map(0x0086, 0x0086).rw(FUNC(atmegax8_base_device::reg_r<ICR1L>), FUNC(atmegax8_base_device::icr1l_w));
+	map(0x0087, 0x0087).rw(FUNC(atmegax8_base_device::reg_r<ICR1H>), FUNC(atmegax8_base_device::icr1h_w));
+	map(0x0088, 0x0088).rw(FUNC(atmegax8_base_device::reg_r<OCR1AL>), FUNC(atmegax8_base_device::ocr1al_w));
+	map(0x0089, 0x0089).rw(FUNC(atmegax8_base_device::reg_r<OCR1AH>), FUNC(atmegax8_base_device::ocr1ah_w));
+	map(0x008a, 0x008a).rw(FUNC(atmegax8_base_device::reg_r<OCR1BL>), FUNC(atmegax8_base_device::ocr1bl_w));
+	map(0x008b, 0x008b).rw(FUNC(atmegax8_base_device::reg_r<OCR1BH>), FUNC(atmegax8_base_device::ocr1bh_w));
+
+	map(0x00b0, 0x00b0).rw(FUNC(atmegax8_base_device::reg_r<TCCR2A>), FUNC(atmegax8_base_device::tccr2a_w));
+	map(0x00b1, 0x00b1).rw(FUNC(atmegax8_base_device::reg_r<TCCR2B>), FUNC(atmegax8_base_device::tccr2b_w));
+	map(0x00b2, 0x00b2).rw(FUNC(atmegax8_base_device::reg_r<TCNT2>), FUNC(atmegax8_base_device::tcnt2_w));
+	map(0x00b3, 0x00b3).rw(FUNC(atmegax8_base_device::reg_r<OCR2A>), FUNC(atmegax8_base_device::ocr2a_w));
+	map(0x00b4, 0x00b4).rw(FUNC(atmegax8_base_device::reg_r<OCR2B>), FUNC(atmegax8_base_device::ocr2b_w));
+	map(0x00b6, 0x00b6).rw(FUNC(atmegax8_base_device::reg_r<ASSR>), FUNC(atmegax8_base_device::assr_w));
+
+	map(0x00c0, 0x00c0).rw(FUNC(atmegax8_base_device::reg_r<UCSR0A>), FUNC(atmegax8_base_device::ucsr0a_w));
+	map(0x00c1, 0x00c1).rw(FUNC(atmegax8_base_device::reg_r<UCSR0B>), FUNC(atmegax8_base_device::ucsr0b_w));
+	map(0x00c2, 0x00c2).rw(FUNC(atmegax8_base_device::reg_r<UCSR0C>), FUNC(atmegax8_base_device::ucsr0c_w));
+	map(0x00c4, 0x00c4).rw(FUNC(atmegax8_base_device::reg_r<UBRR0L>), FUNC(atmegax8_base_device::reg_w<UBRR0L>));
+	map(0x00c5, 0x00c5).rw(FUNC(atmegax8_base_device::reg_r<UBRR0H>), FUNC(atmegax8_base_device::reg_w<UBRR0H>));
+	map(0x00c6, 0x00c6).rw(FUNC(atmegax8_base_device::reg_r<UDR0>), FUNC(atmegax8_base_device::reg_w<UDR0>));
+#if 0
 	// Timer 1: generic 2-channel 16-bit
 	map(0x0036, 0x0036).rw(m_timer1, FUNC(megaavr_timer_1_device::tifr_r), FUNC(megaavr_timer_1_device::tifr_w));
 	map(0x006f, 0x006f).rw(m_timer1, FUNC(megaavr_timer_1_device::timsk_r), FUNC(megaavr_timer_1_device::timsk_w));
@@ -727,34 +889,38 @@ void atmegax8_base_device::atmegax8_base_internal_map(address_map &map)
 	map(0x00b2, 0x00b2).rw(m_timer2, FUNC(avr8_fakertc_timer_device::tcnt_r), FUNC(avr8_fakertc_timer_device::tcnt_w));
 	map(0x00b3, 0x00b3).rw(m_timer2, FUNC(avr8_fakertc_timer_device::ocr_a_r), FUNC(avr8_fakertc_timer_device::ocr_a_w));
 	map(0x00b4, 0x00b4).rw(m_timer2, FUNC(avr8_fakertc_timer_device::ocr_b_r), FUNC(avr8_fakertc_timer_device::ocr_b_w));
-
+#endif
 	// cells 0x00c7-0x00ff all reserved
 }
 
+#if 0
 void atmega48_device::atmega48_device_internal_map(address_map &map)
 {
 	atmegax8_base_internal_map::atmegax8_base_internal_map();
 	map(0x0100, 0x02ff).ram();
 }
+#endif
 
-void atmega88_device::atmega88_device_internal_map(address_map &map)
+void atmega88_device::atmega88_internal_map(address_map &map)
 {
-	atmegax8_base_internal_map::atmegax8_base_internal_map();
+	atmegax8_base_internal_map(map);
 	map(0x0100, 0x04ff).ram();
 }
 
 void atmega168_device::atmega168_internal_map(address_map &map)
 {
-	atmegax4_base_device::atmegaxu4_base_internal_map();
+	atmegax8_base_internal_map(map);
 	map(0x0100, 0x04ff).ram();
 }
 
 void atmega328_device::atmega328_internal_map(address_map &map)
 {
-	atmegax4_base_device::atmegaxu4_base_internal_map();
+	atmegax8_base_internal_map(map);
 	map(0x0100, 0x08ff).ram();
 }
 
+
+#if 0
 void atmegaxu4_base_device::atmegaxu4_base_internal_map(address_map &map)
 {
 	megaavr_classic_base_device::megaavr_base_internal_map(map);
@@ -775,8 +941,17 @@ void atmegaxu4_base_device::atmegaxu4_base_internal_map(address_map &map)
 	map(0x002f, 0x002f).r(FUNC(avr8_device::pin_r<5>));
 	map(0x0030, 0x0030).w(FUNC(avr8_device::ddr_w<GPIOF>));
 	map(0x0031, 0x0031).rw(FUNC(avr8_device::gpio_r<GPIOF>), FUNC(avr8_device::port_w<GPIOF>));
+	// 0x0032, 0x0033, 0x0034: reserved
+	// 0x0035: TIFR0 (already mapped)
+	map(0x0036, 0x0036).rw((READ_REG(TIFR1), FUNC(avr8_device::tifr1_w));
+	// 0x0037: reserved (no timer 2)
+	// 0x0038: TIFR3
+	// 0x0039: TIFR4
+	// 0x003a: reserved
+	// 0x003b: PCIFR
 
-	// install timers 1, 3, 4 here
+
+	// TODO: install timers 1, 3, 4 here
 
 	// USB PLL: pretend it's always locked for now
 	map(0x0049, 0x0049).lrw8(
@@ -809,27 +984,6 @@ void atmegax4_base_device::atmega1284_2564_base_internal_map(address_map &map)
 	// needs to be installed here
 }
 #endif
-
-void atmega88_device::atmega88_internal_map(address_map &map)
-{
-	avr8_device::base_internal_map(map);
-
-	// TODO: internal SRAM
-}
-
-void atmega168_device::atmega168_internal_map(address_map &map)
-{
-	avr8_device::base_internal_map(map);
-
-	// TODO: internal SRAM
-}
-
-void atmega328_device::atmega328_internal_map(address_map &map)
-{
-	avr8_device::base_internal_map(map);
-
-	// TODO: internal SRAM
-}
 
 void atmega32u4_device::atmega32u4_internal_map(address_map &map)
 {
@@ -1027,6 +1181,7 @@ avr8_base_device::avr8_base_device(const machine_config &mconfig, const char *ta
 	, m_addr_mask((addr_mask << 1) | 1)
 	, m_sleeping(false)
 	, m_sei_delay_pending(false)
+	, m_int_ack_cbs(*this)
 {
 }
 
@@ -1540,6 +1695,8 @@ void avr8_device<NumTimers>::device_add_mconfig(machine_config &config)
 
 void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
 {
+	avr8_device<3>::device_add_mconfig(config);
+
 	// Timer 0 basic implementation is the same across the classic megaAVR lineup,
 	// but signal routing differs. Each subclass device_add_mconfig() is responsible
 	// for routing them.
@@ -1547,6 +1704,10 @@ void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
 	m_timer_0->tov_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_TOV0>));
 	m_timer_0->ocf_a_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF0A>));
 	m_timer_0->ocf_b_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF0B>));
+
+	m_int_ack_cbs[INTIDX_OCF0A].bind().set(m_timer_0, FUNC(avr8_megaavr_timer_0_device::ocf_a_ack_w));
+	m_int_ack_cbs[INTIDX_OCF0B].bind().set(m_timer_0, FUNC(avr8_megaavr_timer_0_device::ocf_b_ack_w));
+	m_int_ack_cbs[INTIDX_TOV0].bind().set(m_timer_0, FUNC(avr8_megaavr_timer_0_device::tov_ack_w));
 }
 
 // ATMegax8 series (ATMega88, ATMega168, ATMega328)
@@ -1612,6 +1773,8 @@ void atmegax8_base_device::device_add_mconfig(machine_config &config)
 // ATMegaxU4 series (ATMega16U4, ATMega32U4)
 void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 {
+	megaavr_classic_base_device::device_add_mconfig(config);
+
 	// Timer 0 signals: OC0A = PB7, OC0B = PD0, T0 = PD7
 	m_timer_0->oc_a_w_cb().set(&atmegaxu4_base_device::set_gpio_bit<PORTB, 7>, "set_gpio_bit_pb7");
 	m_timer_0->oc_a_toggle_w_cb().set(&atmegaxu4_base_device::toggle_gpio_bit<PORTB, 7>, "toggle_gpio_bit_pb7");
@@ -1693,6 +1856,8 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 // ATMegax0 series (ATMega640, ATMega1280, ATMega2560)
 void atmegax0_base_device::device_add_mconfig(machine_config &config)
 {
+	megaavr_classic_base_device::device_add_mconfig(config);
+
 	// Timer 0 signals: OC0A = PB7, OC0B = PG5, T0 = PD7
 	m_timer_0->oc_a_w_cb().set(&atmegax0_base_device::set_gpio_bit<PORTB, 7>, "set_gpio_bit_pb7");
 	m_timer_0->oc_a_toggle_w_cb().set(&atmegax0_base_device::toggle_gpio_bit<PORTB, 7>, "toggle_gpio_bit_pb7");
@@ -1722,6 +1887,8 @@ void atmegax0_base_device::device_add_mconfig(machine_config &config)
 // ATMegax4 series (ATMega644, ATMega1284, ATMega2564)
 void atmegax4_base_device::device_add_mconfig(machine_config &config)
 {
+	megaavr_classic_base_device::device_add_mconfig(config);
+
 	// TODO
 }
 
@@ -1800,27 +1967,26 @@ inline uint8_t avr8_base_device::pop()
 //  IRQ HANDLING
 //**************************************************************************
 
-
 const avr8_base_device::interrupt_condition avr8_base_device::s_int_conditions[] =
 {
-	// irq id        vector            irq reg    irq reg mask        flag reg  flag reg mask
-	{ INTIDX_SPI,    AVR8_INT_SPI_STC, SPCR,      SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK   },
-	{ INTIDX_OCF0B,  AVR8_INT_T0COMPB, TIMSK0,    TIMSK0_OCIE0B_MASK, TIFR0,    TIFR0_OCF0B_MASK },
-	{ INTIDX_OCF0A,  AVR8_INT_T0COMPA, TIMSK0,    TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK },
-	{ INTIDX_TOV0,   AVR8_INT_T0OVF,   TIMSK0,    TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK  },
-	{ INTIDX_ICF1,   AVR8_INT_T1CAPT,  TIMSK1,    TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK  },
-	{ INTIDX_OCF1B,  AVR8_INT_T1COMPB, TIMSK1,    TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK },
-	{ INTIDX_OCF1A,  AVR8_INT_T1COMPA, TIMSK1,    TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK },
-	{ INTIDX_TOV1,   AVR8_INT_T1OVF,   TIMSK1,    TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK  },
-	{ INTIDX_OCF2B,  AVR8_INT_T2COMPB, TIMSK2,    TIMSK2_OCIE2B_MASK, TIFR2,    TIFR2_OCF2B_MASK },
-	{ INTIDX_OCF2A,  AVR8_INT_T2COMPA, TIMSK2,    TIMSK2_OCIE2A_MASK, TIFR2,    TIFR2_OCF2A_MASK },
-	{ INTIDX_TOV2,   AVR8_INT_T2OVF,   TIMSK2,    TIMSK2_TOIE2_MASK,  TIFR2,    TIFR2_TOV2_MASK  },
-	{ INTIDX_PCINT0, AVR8_INT_PCINT0,  PCICR,     PCICR_PCIE0_MASK,   PCIFR,    PCIFR_PCIF0_MASK },
-	{ INTIDX_PCINT1, AVR8_INT_PCINT1,  PCICR,     PCICR_PCIE1_MASK,   PCIFR,    PCIFR_PCIF1_MASK },
-	{ INTIDX_PCINT2, AVR8_INT_PCINT2,  PCICR,     PCICR_PCIE2_MASK,   PCIFR,    PCIFR_PCIF2_MASK },
-	{ INTIDX_INT0,   AVR8_INT_INT0,    EIMSK,     EIMSK_INT0_MASK,    EIFR,     EIFR_INTF0_MASK  },
-	{ INTIDX_INT1,   AVR8_INT_INT1,    EIMSK,     EIMSK_INT1_MASK,    EIFR,     EIFR_INTF1_MASK  },
-	{ 0,             0,                0,         0,                  0,        0, 				 } // end of list
+	// irq id        vector            dev handled?  irq reg    irq reg mask        flag reg  flag reg mask
+	{ INTIDX_SPI,    AVR8_INT_SPI_STC, 0, 			 SPCR,      SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK   },
+	{ INTIDX_OCF0B,  AVR8_INT_T0COMPB, 1, 			 TIMSK0,    TIMSK0_OCIE0B_MASK, TIFR0,    TIFR0_OCF0B_MASK },
+	{ INTIDX_OCF0A,  AVR8_INT_T0COMPA, 1, 			 TIMSK0,    TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK },
+	{ INTIDX_TOV0,   AVR8_INT_T0OVF,   1,			 TIMSK0,    TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK  },
+	{ INTIDX_ICF1,   AVR8_INT_T1CAPT,  0, 			 TIMSK1,    TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK  },
+	{ INTIDX_OCF1B,  AVR8_INT_T1COMPB, 0, 			 TIMSK1,    TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK },
+	{ INTIDX_OCF1A,  AVR8_INT_T1COMPA, 0, 			 TIMSK1,    TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK },
+	{ INTIDX_TOV1,   AVR8_INT_T1OVF,   0, 			 TIMSK1,    TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK  },
+	{ INTIDX_OCF2B,  AVR8_INT_T2COMPB, 0, 			 TIMSK2,    TIMSK2_OCIE2B_MASK, TIFR2,    TIFR2_OCF2B_MASK },
+	{ INTIDX_OCF2A,  AVR8_INT_T2COMPA, 0, 			 TIMSK2,    TIMSK2_OCIE2A_MASK, TIFR2,    TIFR2_OCF2A_MASK },
+	{ INTIDX_TOV2,   AVR8_INT_T2OVF,   0, 			 TIMSK2,    TIMSK2_TOIE2_MASK,  TIFR2,    TIFR2_TOV2_MASK  },
+	{ INTIDX_PCINT0, AVR8_INT_PCINT0,  0, 			 PCICR,     PCICR_PCIE0_MASK,   PCIFR,    PCIFR_PCIF0_MASK },
+	{ INTIDX_PCINT1, AVR8_INT_PCINT1,  0, 			 PCICR,     PCICR_PCIE1_MASK,   PCIFR,    PCIFR_PCIF1_MASK },
+	{ INTIDX_PCINT2, AVR8_INT_PCINT2,  0, 			 PCICR,     PCICR_PCIE2_MASK,   PCIFR,    PCIFR_PCIF2_MASK },
+	{ INTIDX_INT0,   AVR8_INT_INT0,    0, 			 EIMSK,     EIMSK_INT0_MASK,    EIFR,     EIFR_INTF0_MASK  },
+	{ INTIDX_INT1,   AVR8_INT_INT1,    0, 			 EIMSK,     EIMSK_INT1_MASK,    EIFR,     EIFR_INTF1_MASK  },
+	{ 0,             0,                0,         	 0, 		0,                  0,        0, 				} // end of list
 };
 
 void avr8_base_device::update_interrupt(uint8_t intidx)
@@ -1890,14 +2056,12 @@ void avr8_base_device::clear_interrupt(uint8_t intidx)
 
 	if (condition.m_intondev)
 	{
-		fatalerror("code path disabled for development...\n");
-#if 0
-		if (m_int_ack_cbs[intidx] == NULL)
+		if (m_int_ack_cbs[intidx].isunset())
 		{
-			fatalerror("intidx %d is mapped to a device, but no ack handler was installed\n");
+			fatalerror("intidx %d is mapped to a device, but no ack handler was installed\n", intidx);
 		}
+
 		m_int_ack_cbs[intidx](1);
-#endif
 	}
 	else
 	{
@@ -2009,7 +2173,6 @@ void avr8_base_device::populate_interrupt_condition_table()
 	{
 		// unwire all vectors by default
 		m_int_conditions_table[i].m_intidx = INTIDX_COUNT;
-		// m_int_ack_cbs[i] = NULL; // actual interrupt acknowledge handler to be installed at device setup
 	}
 
 	for (int i = 0; !interrupt_condition_entry_is_terminator(int_conds[i]); i++)
@@ -2042,19 +2205,19 @@ bool atmega328_device::pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group) 
 
 const avr8_base_device::interrupt_condition avr8_base_device::s_mega32u4_int_conditions[] =
 {
-	// intidx        vector                  irq reg   irq reg mask        flag reg  flag reg mask
-	{ INTIDX_SPI,    ATMEGA32U4_INT_SPI_STC, SPCR,     SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK,   },
-	{ INTIDX_OCF0B,  ATMEGA32U4_INT_T0COMPB, TIMSK0,   TIMSK0_OCIE0B_MASK, TIFR0,    TIFR0_OCF0B_MASK, },
-	{ INTIDX_OCF0A,  ATMEGA32U4_INT_T0COMPA, TIMSK0,   TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK, },
-	{ INTIDX_TOV0,   ATMEGA32U4_INT_T0OVF,   TIMSK0,   TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK, },
-	{ INTIDX_ICF1,   ATMEGA32U4_INT_T1CAPT,  TIMSK1,   TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK, },
-	{ INTIDX_OCF1B,  ATMEGA32U4_INT_T1COMPB, TIMSK1,   TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK, },
-	{ INTIDX_OCF1A,  ATMEGA32U4_INT_T1COMPA, TIMSK1,   TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK, },
-	{ INTIDX_TOV1,   ATMEGA32U4_INT_T1OVF,   TIMSK1,   TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK, },
-	{ INTIDX_PCINT0, ATMEGA32U4_INT_PCINT0,  PCICR,    PCICR_PCIE0_MASK,   PCIFR,    PCIFR_PCIF0_MASK, },
-	{ INTIDX_INT0,   ATMEGA32U4_INT_INT0,    EIMSK,    EIMSK_INT0_MASK,    EIFR,     EIFR_INTF0_MASK, },
-	{ INTIDX_INT1,   ATMEGA32U4_INT_INT1,    EIMSK,    EIMSK_INT1_MASK,    EIFR,     EIFR_INTF1_MASK, },
-	{ 0,             0,                      0,        0,                  0,        0, } // end of list
+	// intidx        vector                  dev handled?  irq reg   irq reg mask        flag reg  flag reg mask
+	{ INTIDX_SPI,    ATMEGA32U4_INT_SPI_STC, 0,            SPCR,     SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK,   },
+	{ INTIDX_OCF0B,  ATMEGA32U4_INT_T0COMPB, 1,            TIMSK0,   TIMSK0_OCIE0B_MASK, TIFR0,    TIFR0_OCF0B_MASK, },
+	{ INTIDX_OCF0A,  ATMEGA32U4_INT_T0COMPA, 1,            TIMSK0,   TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK, },
+	{ INTIDX_TOV0,   ATMEGA32U4_INT_T0OVF,   1,            TIMSK0,   TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK, },
+	{ INTIDX_ICF1,   ATMEGA32U4_INT_T1CAPT,  0,            TIMSK1,   TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK, },
+	{ INTIDX_OCF1B,  ATMEGA32U4_INT_T1COMPB, 0,            TIMSK1,   TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK, },
+	{ INTIDX_OCF1A,  ATMEGA32U4_INT_T1COMPA, 0,            TIMSK1,   TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK, },
+	{ INTIDX_TOV1,   ATMEGA32U4_INT_T1OVF,   0,            TIMSK1,   TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK, },
+	{ INTIDX_PCINT0, ATMEGA32U4_INT_PCINT0,  0,            PCICR,    PCICR_PCIE0_MASK,   PCIFR,    PCIFR_PCIF0_MASK, },
+	{ INTIDX_INT0,   ATMEGA32U4_INT_INT0,    0,            EIMSK,    EIMSK_INT0_MASK,    EIFR,     EIFR_INTF0_MASK, },
+	{ INTIDX_INT1,   ATMEGA32U4_INT_INT1,    0,            EIMSK,    EIMSK_INT1_MASK,    EIFR,     EIFR_INTF1_MASK, },
+	{ 0,             0,                      0,        	   0,        0,                  0,        0, } // end of list
 };
 
 bool atmega32u4_device::pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group) const
@@ -2070,7 +2233,7 @@ bool atmega32u4_device::pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group)
 
 const avr8_base_device::interrupt_condition avr8_base_device::s_mega640_int_conditions[avr8_base_device::INTIDX_COUNT] =
 {
-	// irq id        vector                  irq reg   irq reg mask        flag reg  flag reg mask
+	// irq id        vector                  dev handled?  irq reg   irq reg mask        flag reg  flag reg mask
 	{ INTIDX_SPI,  	 ATMEGA640_INT_SPI_STC,  SPCR,     SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK },
 	{ INTIDX_OCF0B,  ATMEGA640_INT_T0COMPB,  TIMSK0,   TIMSK0_OCIE0B_MASK, TIFR0,    TIFR0_OCF0B_MASK },
 	{ INTIDX_OCF0A,  ATMEGA640_INT_T0COMPA,  TIMSK0,   TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK },
@@ -2092,24 +2255,24 @@ const avr8_base_device::interrupt_condition avr8_base_device::s_mega640_int_cond
 
 const avr8_base_device::interrupt_condition avr8_base_device::s_mega644_int_conditions[avr8_base_device::INTIDX_COUNT] =
 {
-	//  irq id        vector                  irq reg   irq reg mask        flag reg  flag reg mask
-	{ INTIDX_SPI,     ATMEGA644_INT_SPI_STC,  SPCR,     SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK },
-	{ INTIDX_OCF0B,   ATMEGA644_INT_T0COMPB,  TIMSK0,   TIMSK0_OCIE0B_MASK, TIFR0,    TIFR0_OCF0B_MASK },
-	{ INTIDX_OCF0A,   ATMEGA644_INT_T0COMPA,  TIMSK0,   TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK },
-	{ INTIDX_TOV0,    ATMEGA644_INT_T0OVF,    TIMSK0,   TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK },
-	{ INTIDX_ICF1,    ATMEGA644_INT_T1CAPT,   TIMSK1,   TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK },
-	{ INTIDX_OCF1B,   ATMEGA644_INT_T1COMPB,  TIMSK1,   TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK },
-	{ INTIDX_OCF1A,   ATMEGA644_INT_T1COMPA,  TIMSK1,   TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK },
-	{ INTIDX_TOV1,    ATMEGA644_INT_T1OVF,    TIMSK1,   TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK },
-	{ INTIDX_OCF2B,   ATMEGA644_INT_T2COMPB,  TIMSK2,   TIMSK2_OCIE2B_MASK, TIFR2,    TIFR2_OCF2B_MASK },
-	{ INTIDX_OCF2A,   ATMEGA644_INT_T2COMPA,  TIMSK2,   TIMSK2_OCIE2A_MASK, TIFR2,    TIFR2_OCF2A_MASK },
-	{ INTIDX_TOV2,    ATMEGA644_INT_T2OVF,    TIMSK2,   TIMSK2_TOIE2_MASK,  TIFR2,    TIFR2_TOV2_MASK },
-	{ INTIDX_PCINT0,  ATMEGA644_INT_PCINT0,   PCICR,    PCICR_PCIE0_MASK,   PCIFR,    PCIFR_PCIF0_MASK },
-	{ INTIDX_PCINT1,  ATMEGA644_INT_PCINT1,   PCICR,    PCICR_PCIE1_MASK,   PCIFR,    PCIFR_PCIF1_MASK },
-	{ INTIDX_PCINT2,  ATMEGA644_INT_PCINT2,   PCICR,    PCICR_PCIE2_MASK,   PCIFR,    PCIFR_PCIF2_MASK },
-	{ INTIDX_INT0,    ATMEGA644_INT_INT0,     EIMSK,    EIMSK_INT0_MASK,    EIFR,     EIFR_INTF0_MASK },
-	{ INTIDX_INT1,    ATMEGA644_INT_INT1,     EIMSK,    EIMSK_INT1_MASK,    EIFR,     EIFR_INTF1_MASK },
-	{ 0,              0,                      0,        0,                  0,        0, } // end of list
+	//  irq id        vector                  dev handled?  irq reg   irq reg mask        flag reg  flag reg mask
+	{ INTIDX_SPI,     ATMEGA644_INT_SPI_STC,  0, 			SPCR,     SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK },
+	{ INTIDX_OCF0B,   ATMEGA644_INT_T0COMPB,  1, 			TIMSK0,   TIMSK0_OCIE0B_MASK, TIFR0,    TIFR0_OCF0B_MASK },
+	{ INTIDX_OCF0A,   ATMEGA644_INT_T0COMPA,  1, 			TIMSK0,   TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK },
+	{ INTIDX_TOV0,    ATMEGA644_INT_T0OVF,    1, 			TIMSK0,   TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK },
+	{ INTIDX_ICF1,    ATMEGA644_INT_T1CAPT,   0, 			TIMSK1,   TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK },
+	{ INTIDX_OCF1B,   ATMEGA644_INT_T1COMPB,  0, 			TIMSK1,   TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK },
+	{ INTIDX_OCF1A,   ATMEGA644_INT_T1COMPA,  0, 			TIMSK1,   TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK },
+	{ INTIDX_TOV1,    ATMEGA644_INT_T1OVF,    0, 			TIMSK1,   TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK },
+	{ INTIDX_OCF2B,   ATMEGA644_INT_T2COMPB,  0, 			TIMSK2,   TIMSK2_OCIE2B_MASK, TIFR2,    TIFR2_OCF2B_MASK },
+	{ INTIDX_OCF2A,   ATMEGA644_INT_T2COMPA,  0, 			TIMSK2,   TIMSK2_OCIE2A_MASK, TIFR2,    TIFR2_OCF2A_MASK },
+	{ INTIDX_TOV2,    ATMEGA644_INT_T2OVF,    0, 			TIMSK2,   TIMSK2_TOIE2_MASK,  TIFR2,    TIFR2_TOV2_MASK },
+	{ INTIDX_PCINT0,  ATMEGA644_INT_PCINT0,   0, 			PCICR,    PCICR_PCIE0_MASK,   PCIFR,    PCIFR_PCIF0_MASK },
+	{ INTIDX_PCINT1,  ATMEGA644_INT_PCINT1,   0, 			PCICR,    PCICR_PCIE1_MASK,   PCIFR,    PCIFR_PCIF1_MASK },
+	{ INTIDX_PCINT2,  ATMEGA644_INT_PCINT2,   0, 			PCICR,    PCICR_PCIE2_MASK,   PCIFR,    PCIFR_PCIF2_MASK },
+	{ INTIDX_INT0,    ATMEGA644_INT_INT0,     0, 			EIMSK,    EIMSK_INT0_MASK,    EIFR,     EIFR_INTF0_MASK },
+	{ INTIDX_INT1,    ATMEGA644_INT_INT1,     0, 			EIMSK,    EIMSK_INT1_MASK,    EIFR,     EIFR_INTF1_MASK },
+	{ 0,              0,                      0,        	0,		  0,                  0,        0, } // end of list
 };
 
 bool atmega644_device::pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group) const
@@ -4463,10 +4626,9 @@ void avr8_device<NumTimers>::execute_run()
 			}
 
 			// old timer shit!!!! to be removed before the PR happens
-
-			m_timer_prescale_count[0]++;
-			if (m_timer_prescale_count[0] > m_timer_prescale[0])
-				m_timer0_tick();
+			// m_timer_prescale_count[0]++;
+			// if (m_timer_prescale_count[0] > m_timer_prescale[0])
+			// 	m_timer0_tick();
 
 			m_timer_prescale_count[1]++;
 			if (m_timer_prescale_count[1] > m_timer_prescale[1])

@@ -787,7 +787,7 @@ protected:
 
 	// Interrupt handling tables
 	uint8_t m_int_statuses[INTIDX_COUNT];   // persistent, must be savestate-able
-	// devcb_write_line m_int_ack_cbs[INTIDX_COUNT]; // rebuilt at device_start
+	devcb_write_line::array<INTIDX_COUNT> m_int_ack_cbs; // rebuilt at device_start
 	std::unique_ptr<interrupt_condition[]> m_int_conditions_table; // rebuilt at device_start
 
 	// Interrupt handling size for the AVR8s is usually 2; some devices will only use 1
@@ -806,6 +806,11 @@ protected:
 	inline bool interrupt_condition_entry_is_terminator(interrupt_condition condition);
 	void populate_interrupt_condition_table();
 	void update_interrupt(uint8_t intidx);
+
+	// temporary; for registers in m_r that are not yet brought out to devices,
+	// or don't have dedicated _r() functions
+	template <int Reg> uint8_t reg_r() { return m_r[Reg]; }
+	template <int Reg> void reg_w(uint8_t data) { m_r[Reg] = data; }
 
 	void set_interrupt_line(uint8_t intidx, uint8_t state);
 	
@@ -1081,7 +1086,7 @@ protected:
 	bool m_adc_first;
 	bool m_adc_hold;
 
-	// SPI
+	// SPI (only on megaAVRs, the tinyAVRs don't have it)
 	void spsr_w(uint8_t data);
 	void spcr_w(uint8_t data);
 	void spdr_w(uint8_t data);
@@ -1386,6 +1391,8 @@ protected:
 	virtual void device_start() override ATTR_COLD;
 	virtual void device_reset() override ATTR_COLD;
 	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
+	
+	void atmegax8_base_internal_map(address_map &map);
 
 	// TODO: add timers 1, 2
 };
