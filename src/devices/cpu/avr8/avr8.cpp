@@ -675,7 +675,7 @@ void megaavr_classic_base_device::megaavr_classic_base_internal_map(address_map 
 	// 0x0020-0x0034 all reserved for ports; install those in sub-devices only.
 	
 	map(0x0035, 0x0035).rw(m_timer_0, &avr8_megaavr_timer_0_device::tifr_r, "timer_0_tifr_r", &avr8_megaavr_timer_0_device::tifr_w, "timer_0_tifr_w");
-	map(0x0036, 0x0036).rw(m_timer_1, &avr8_generic_t1_timer_device::tifr_r, "timer_0_tifr_r", &avr8_generic_t1_timer_device::tifr_w, "timer_1_tifr_w");
+	map(0x0036, 0x0036).rw(m_timer_1, &avr8_generic_t1_timer_device::tifr_r, "timer_1_tifr_r", &avr8_generic_t1_timer_device::tifr_w, "timer_1_tifr_w");
 	
 	// 0x0037-0x003a: all reserved for other timers
 	
@@ -1193,7 +1193,6 @@ avr8_device<NumTimers>::avr8_device(const machine_config &mconfig, const char *t
 	, m_spi_prescale(0)
 	, m_spi_prescale_count(0)
 	, m_spi_rx_shift(0)
-	, m_synchronous_prescaler(*this, "syncprescale")
 	, m_timers(*this, "timer%u", 0U)
 {
 	// Fill in default callbacks
@@ -1687,8 +1686,7 @@ void avr8_device<NumTimers>::device_add_mconfig(machine_config &config)
 	avr8_base_device::device_add_mconfig(config);
 
 	// all classic AVRs will have a synchronous prescaler; instantiate it here
-	AVR8_CLASSIC_10BIT_PRESCALER(config, m_synchronous_prescaler, 0);
-
+	AVR8_CLASSIC_10BIT_PRESCALER(config, "syncprescale", 0);
 }
 
 void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
@@ -1713,9 +1711,9 @@ void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
 	m_timer_1->ocf_b_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF1B>));
 	// OCF1C to be installed by sub-devices
 
-	m_int_ack_cbs[INTIDX_OCF1A].bind().set(m_timer_1, FUNC(avr8_megaavr_timer_0_device::ocf_a_ack_w));
-	m_int_ack_cbs[INTIDX_OCF1B].bind().set(m_timer_1, FUNC(avr8_megaavr_timer_0_device::ocf_b_ack_w));
-	m_int_ack_cbs[INTIDX_TOV1].bind().set(m_timer_1, FUNC(avr8_megaavr_timer_0_device::tov_ack_w));
+	m_int_ack_cbs[INTIDX_OCF1A].bind().set(m_timer_1, FUNC(avr8_generic_t1_timer_device::ocf_a_ack_w));
+	m_int_ack_cbs[INTIDX_OCF1B].bind().set(m_timer_1, FUNC(avr8_generic_t1_timer_device::ocf_b_ack_w));
+	m_int_ack_cbs[INTIDX_TOV1].bind().set(m_timer_1, FUNC(avr8_generic_t1_timer_device::tov_ack_w));
 }
 
 // ATMegax8 series (ATMega88, ATMega168, ATMega328)
@@ -1737,27 +1735,29 @@ void atmegax8_base_device::device_add_mconfig(machine_config &config)
 	m_timer_1->oc_b_w_cb().set(&atmegax8_base_device::set_gpio_bit<PORTB, 2>, "set_gpio_bit_pb2");
 	m_timer_1->oc_b_toggle_w_cb().set(&atmegax8_base_device::toggle_gpio_bit<PORTD, 2>, "toggle_gpio_bit_pb2");
 	// TODO: T1
+
+	auto prescaler = subdevice<avr8_10bit_prescaler_device>("syncprescale");
 	
 	// 10-bit prescaler feeds clk_io divisions to both timers 0 and 1 at the same time
-	m_synchronous_prescaler->clk8_w_cb().set([this] (uint8_t data)
+	prescaler->clk8_w_cb().set([this] (uint8_t data)
 	{
 		m_timer_0->clk_div8_w(data);
 		m_timer_1->clk_div8_w(data);
 	});
 
-	m_synchronous_prescaler->clk64_w_cb().set([this] (uint8_t data)
+	prescaler->clk64_w_cb().set([this] (uint8_t data)
 	{
 		m_timer_0->clk_div64_w(data);
 		m_timer_1->clk_div64_w(data);
 	});
 
-	m_synchronous_prescaler->clk256_w_cb().set([this] (uint8_t data)
+	prescaler->clk256_w_cb().set([this] (uint8_t data)
 	{
 		m_timer_0->clk_div256_w(data);
 		m_timer_1->clk_div256_w(data);
 	});
 
-	m_synchronous_prescaler->clk1024_w_cb().set([this] (uint8_t data)
+	prescaler->clk1024_w_cb().set([this] (uint8_t data)
 	{
 		m_timer_0->clk_div1024_w(data);
 		m_timer_1->clk_div1024_w(data);
@@ -3394,7 +3394,7 @@ void megaavr_classic_base_device::gtccr_w(uint8_t data)
 	m_psrasy = BIT(data, 1);
 	m_psrsync = BIT(data, 0);
 	
-	if (m_psrsync) m_synchronous_prescaler->sync_w(true);
+	if (m_psrsync) subdevice<avr8_10bit_prescaler_device>("syncprescale")->sync_w(true);
 	// TODO: PSRASY hookup/routing
 	
 	// if TSM not active, PSRASY and PSRSYNC will automatically clear on the same cycle
@@ -3403,7 +3403,7 @@ void megaavr_classic_base_device::gtccr_w(uint8_t data)
 		m_psrasy = false;
 		m_psrsync = false;
 
-		m_synchronous_prescaler->sync_w(false);
+		subdevice<avr8_10bit_prescaler_device>("syncprescale")->sync_w(false);
 		// TODO: PSRASY
 	}
 }
@@ -4613,7 +4613,7 @@ void avr8_device<NumTimers>::execute_run()
 				}
 			}
 
-			m_synchronous_prescaler->tick();
+			subdevice<avr8_10bit_prescaler_device>("syncprescale")->tick();
 
 			// TODO: if an async timer is present, its controller still needs to be notified
 			// of a clk_io cycle because the timer might be in synchronous mode

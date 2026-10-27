@@ -119,7 +119,7 @@
 #define LOG_TIMER1          (1U << 2)
 #define LOG_TIMER1_TICK     (1U << 3)
 
-#define VERBOSE             (LOG_TIMER0) // | LOG_TIMER0_TICK)
+#define VERBOSE             (LOG_TIMER1 | LOG_TIMER1_TICK)
 //#define LOG_OUTPUT_FUNC     osd_printf_info
 #include "logmacro.h"
 
@@ -220,7 +220,7 @@ void avr8_base_timer_device::device_reset()
 void avr8_base_timer_device::toie_w(uint8_t data)
 {
     m_toie = data != 0;
-    if (!m_tov_int_cb.isunset()) m_tov_int_cb(m_toie != 0 && m_tov != 0);
+    if (!m_tov_int_cb.isunset()) m_tov_int_cb(m_toie && m_tov);
 }
 
 void avr8_base_timer_device::ocie_a_w(uint8_t data)
@@ -1200,7 +1200,7 @@ void avr8_generic_t1_timer_device::install_wgm_callbacks()
     // GENERIC_TIMER1_WGM_CTC_ICR1        = 0b1100, // CTC: count to ICR1
     // // 0b1101: reserved/illegal
     // GENERIC_TIMER1_WGM_FAST_PWM_ICR1   = 0b1110, // fast PWM; count to ICR1
-    // GENERIC_TIMER1_WGM_FAST_PWM_OCRA   = 0b1111, // fast PWM; count to OCR1A
+    m_wgm_cbs[GENERIC_TIMER1_WGM_FAST_PWM_OCRA] = timer_func(&avr8_generic_t1_timer_device::advance_fast_pwm_ocr_a, this);
 }
 
 void avr8_generic_t1_timer_device::tick()
@@ -1234,7 +1234,7 @@ void avr8_generic_t1_timer_device::tick()
     if (m_cs == GENERIC_TIMER1_CS_T1_RISE && !t_rising) return;
     // GENERIC_TIMER1_CS_DIRECT = just fall through
 
-    LOGMASKED(LOG_TIMER1_TICK, "%s: running wgm callback %d\n", machine().describe_context(), m_wgm);
+    // LOGMASKED(LOG_TIMER1_TICK, "%s: running wgm callback %d\n", machine().describe_context(), m_wgm);
 
     m_wgm_cbs[m_wgm]();
     m_no_compare_this_cycle = false; // because the current timer cycle has ended
@@ -1344,6 +1344,46 @@ void avr8_generic_t1_timer_device::advance_pwm_9bit()
 void avr8_generic_t1_timer_device::advance_pwm_10bit()
 {
     advance_pwm_common(0x3ff);
+}
+
+void avr8_generic_t1_timer_device::advance_fast_pwm_ocr_a()
+{
+    if (is_compare_a())
+    {
+        raise_tov();
+
+        // TODO: fast pwm update output pins
+
+        raise_ocf_a();
+
+        m_tcnt = 0;
+    
+        // the timer's rolled over, so we have to stop here
+        // or else the timer will advance!
+        return;
+    }
+    else if (m_tcnt == 0)
+    {
+        // clear_interrupt(INTIDX_TOV1);
+
+        // TODO: fast pwm update output pins
+    }
+
+    if (is_compare_b())
+    {
+        // LOGMASKED(LOG_TIMER1_TICK, "%s: timer1 WGM1 FAST_PWM_OCR, OCR1B, new count %04x, OCR1A/B %04x/%04x, ICR1 %04x\n", machine().describe_context(), timer1_count, m_ocr1[AVR8_REG_A], m_ocr1[AVR8_REG_B], icr1);
+        
+        // TODO: update OCxB output
+        
+        raise_ocf_b();
+    }
+    else if (m_tcnt == 0)
+    {
+        // TODO: update OCxB
+    }
+
+    // in all other cases, just keep ticking the timer upwards
+    m_tcnt = next_count();
 }
 
 void avr8_generic_t1_timer_device::update_oc_a_pwm_on_downcount_compare()
@@ -1713,8 +1753,10 @@ void avr8_generic_t1_timer_device::tccr_b_w(uint8_t data)
 
 uint8_t avr8_generic_t1_timer_device::tccr_b_r()
 {
+    // bits 0,1,2 = CS
+    // bits 3,4 = WGMx3,2
     return 
-        cs_r() |
+        BIT(cs_r(), 0, 3) |
         (BIT(wgm_r(), 2, 2) << 3);
 
     // TODO: bit 7 = ICNC1 (noise canceller)

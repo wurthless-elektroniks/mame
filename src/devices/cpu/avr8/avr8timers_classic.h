@@ -708,6 +708,8 @@ protected:
     void advance_pwm_9bit();
     void advance_pwm_10bit();
 
+    void advance_fast_pwm_ocr_a();
+
     void update_oc_a_pwm_on_downcount_compare();
     void update_oc_a_pwm_on_upcount_compare();
     void update_oc_b_pwm_on_downcount_compare();

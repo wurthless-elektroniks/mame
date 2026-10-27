@@ -1108,7 +1108,7 @@ protected:
 	uint8_t m_spi_rx_shift;
 
 	// timers
-	required_device<avr8_10bit_prescaler_device> m_synchronous_prescaler; // synchronous prescaler for timers ticking in sync with it
+	// required_device<avr8_10bit_prescaler_device> m_synchronous_prescaler; // synchronous prescaler for timers ticking in sync with it
 	optional_device_array<avr8_base_timer_device, 6> m_timers; // optional, because some timers will almost certainly not be present
 	
 	template <int Timer> void update_timer_clock_source(uint8_t selection, const uint8_t old_clock_select);
