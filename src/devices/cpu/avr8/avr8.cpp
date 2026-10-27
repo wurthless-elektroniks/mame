@@ -2128,7 +2128,7 @@ void avr8_base_device::fire_interrupts()
 			fatalerror("interrupt %d set to fire, but wasn't mapped to anything", i);
 		}
 
-		if (!(m_r[condition.m_intreg] & condition.m_intmask))
+		if (!condition.m_intondev && !(m_r[condition.m_intreg] & condition.m_intmask))
 		{
 			logerror("%s: avr8 standard interrupt %d scheduled but its enable flag at %02x is cleared\n",
 					 machine().describe_context(),

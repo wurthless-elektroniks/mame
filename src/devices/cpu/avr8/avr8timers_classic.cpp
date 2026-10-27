@@ -119,6 +119,8 @@
 #define LOG_TIMER1          (1U << 2)
 #define LOG_TIMER1_TICK     (1U << 3)
 
+#define LOG_INT_ACKS (1 << 4)
+
 #define VERBOSE             (LOG_TIMER1 | LOG_TIMER1_TICK)
 //#define LOG_OUTPUT_FUNC     osd_printf_info
 #include "logmacro.h"
@@ -244,33 +246,52 @@ void avr8_base_timer_device::ocie_c_w(uint8_t data)
 void avr8_base_timer_device::tov_w(uint8_t data)
 {
     if (data == 0) return;
+    clear_tov();
+}
 
+void avr8_base_timer_device::tov_ack_w(uint8_t _)
+{
+    LOGMASKED(LOG_INT_ACKS, "%s: TOV int acknowledged by CPU\n", machine().describe_context());
     m_tov = false;
-    if (!m_tov_int_cb.isunset()) m_tov_int_cb(0);
+}
+
+void avr8_base_timer_device::ocf_a_ack_w(uint8_t _)
+{
+    LOGMASKED(LOG_INT_ACKS, "%s: OCF A int acknowledged by CPU\n", machine().describe_context());
+    m_ocf_a = false;
+}
+
+void avr8_base_timer_device::ocf_b_ack_w(uint8_t _)
+{
+    LOGMASKED(LOG_INT_ACKS, "%s: OCF B int acknowledged by CPU\n", machine().describe_context());
+    m_ocf_b = false;
+}
+
+void avr8_base_timer_device::ocf_c_ack_w(uint8_t _)
+{
+    LOGMASKED(LOG_INT_ACKS, "%s: OCF C int acknowledged by CPU\n", machine().describe_context());
+    m_ocf_c = false;
 }
 
 void avr8_base_timer_device::ocf_a_w(uint8_t data)
 {
     if (data == 0) return;
 
-    m_ocf_a = false;
-    if (!m_ocf_a_int_cb.isunset()) m_ocf_a_int_cb(0);
+    clear_ocf_a();
 }
 
 void avr8_base_timer_device::ocf_b_w(uint8_t data)
 {
     if (data == 0) return;
 
-    m_ocf_b = false;
-    if (!m_ocf_b_int_cb.isunset()) m_ocf_b_int_cb(0);
+    clear_ocf_b();
 }
 
 void avr8_base_timer_device::ocf_c_w(uint8_t data)
 {
     if (data == 0) return;
 
-    m_ocf_c = false;
-    if (!m_ocf_c_int_cb.isunset()) m_ocf_c_int_cb(0);
+    clear_ocf_c();
 }
 
 void avr8_base_timer_device::raise_tov()
@@ -296,6 +317,31 @@ void avr8_base_timer_device::raise_ocf_c()
     m_ocf_c = true;
     if (m_ocie_c && !m_ocf_c_int_cb.isunset()) m_ocf_c_int_cb(1);
 }
+
+void avr8_base_timer_device::clear_tov()
+{
+    m_tov = false;
+    if (m_toie && !m_tov_int_cb.isunset()) m_tov_int_cb(0);
+}
+
+void avr8_base_timer_device::clear_ocf_a()
+{
+    m_ocf_a = false;
+    if (m_ocie_a && !m_ocf_a_int_cb.isunset()) m_ocf_a_int_cb(1);
+}
+
+void avr8_base_timer_device::clear_ocf_b()
+{
+    m_ocf_b = false;
+    if (m_ocie_b && !m_ocf_b_int_cb.isunset()) m_ocf_b_int_cb(1);
+}
+
+void avr8_base_timer_device::clear_ocf_c()
+{
+    m_ocf_c = false;
+    if (m_ocie_c && !m_ocf_c_int_cb.isunset()) m_ocf_c_int_cb(1);
+}
+
 
 void avr8_base_timer_device::com_a_w(uint8_t data)
 {
@@ -1348,6 +1394,14 @@ void avr8_generic_t1_timer_device::advance_pwm_10bit()
 
 void avr8_generic_t1_timer_device::advance_fast_pwm_ocr_a()
 {
+    if (m_tcnt == 0)
+    {
+        // OCR values reload from buffers at BOTTOM in this mode
+        m_ocr_a = m_ocr_a_buf;
+        m_ocr_b = m_ocr_b_buf;
+        m_ocr_c = m_ocr_c_buf;
+    }
+
     if (is_compare_a())
     {
         raise_tov();
@@ -1364,7 +1418,7 @@ void avr8_generic_t1_timer_device::advance_fast_pwm_ocr_a()
     }
     else if (m_tcnt == 0)
     {
-        // clear_interrupt(INTIDX_TOV1);
+        clear_tov();
 
         // TODO: fast pwm update output pins
     }
@@ -1620,6 +1674,8 @@ void avr8_generic_t1_timer_device::cs_w(uint8_t data)
     // Like Timer 1, this always runs in sync with the I/O clock,
     // and m_cs should contain the same structure.
     m_cs = BIT(data, 0, 3);
+
+    printf("m_cs: switching to mode %d\n", m_cs);
 }
 
 void avr8_generic_t1_timer_device::tcnt_h_w(uint8_t data)
@@ -1635,6 +1691,7 @@ uint8_t avr8_generic_t1_timer_device::tcnt_h_r()
 void avr8_generic_t1_timer_device::tcnt_l_w(uint8_t data)
 {
     m_tcnt = (m_temp << 8) | data;
+    LOGMASKED(LOG_TIMER1, "%s: tcnt changing to %04x\n", machine().describe_context(), m_tcnt);
 }
 
 uint8_t avr8_generic_t1_timer_device::tcnt_l_r()
@@ -1652,6 +1709,8 @@ void avr8_generic_t1_timer_device::ocr_a_h_w(uint8_t data)
 void avr8_generic_t1_timer_device::ocr_a_l_w(uint8_t data)
 {
     m_ocr_a_buf = (m_temp << 8) | data;
+
+    LOGMASKED(LOG_TIMER1, "%s: OCR A switching to %04x\n", machine().describe_context(), m_ocr_a_buf);
 
     switch (m_wgm)
     {

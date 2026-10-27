@@ -36,7 +36,7 @@ public:
     // TOV/TOIE: timer overflow interrupt, common to all timers
     auto tov_int_cb() { return m_tov_int_cb.bind(); } // TOVx interrupt callback (can clear a pending interrupt)
     void tov_w(uint8_t data); // TOVx clear/acknowledge (when written by program)
-    void tov_ack_w(uint8_t data) { m_tov = false; }; // TOVx clear/acknowledge (when AVR8 core takes the interrupt)
+    void tov_ack_w(uint8_t data); // TOVx clear/acknowledge (when AVR8 core takes the interrupt)
     uint8_t tov_r() { return m_tov; } // TOVx status
     void toie_w(uint8_t data);
     uint8_t toie_r() { return m_toie; }
@@ -44,7 +44,7 @@ public:
     // OCFxA, OCIExA
     auto ocf_a_int_cb() { return m_ocf_a_int_cb.bind(); }
     void ocf_a_w(uint8_t data);
-    void ocf_a_ack_w(uint8_t data) { m_ocf_a = false; }
+    void ocf_a_ack_w(uint8_t data);
     uint8_t ocf_a_r() { return m_ocf_a; }
     void ocie_a_w(uint8_t data);
     uint8_t ocie_a_r() { return m_ocie_a; }
@@ -52,7 +52,7 @@ public:
     // OCFxB, OCIExB
     auto ocf_b_int_cb() { return m_ocf_b_int_cb.bind(); }
     void ocf_b_w(uint8_t data);
-    void ocf_b_ack_w(uint8_t data) { m_ocf_b = false; }
+    void ocf_b_ack_w(uint8_t data);
     uint8_t ocf_b_r() { return m_ocf_b; }
     void ocie_b_w(uint8_t data);
     uint8_t ocie_b_r() { return m_ocie_b; }
@@ -60,7 +60,7 @@ public:
     // OCFxC, OCIExC
     auto ocf_c_int_cb() { return m_ocf_c_int_cb.bind(); }
     void ocf_c_w(uint8_t data);
-    void ocf_c_ack_w(uint8_t data) { m_ocf_c = false; }
+    void ocf_c_ack_w(uint8_t data);
     uint8_t ocf_c_r() { return m_ocf_c; }
     void ocie_c_w(uint8_t data);
     uint8_t ocie_c_r() { return m_ocie_c; }
@@ -242,6 +242,11 @@ protected:
     void raise_ocf_a(); // raise OCFxA flag and signal an interrupt if enabled
     void raise_ocf_b(); // raise OCFxB flag and signal an interrupt if enabled
     void raise_ocf_c(); // raise OCFxC flag and signal an interrupt if enabled
+
+    void clear_tov(); // clear TOV flag and de-assert CPU interrupt
+    void clear_ocf_a(); // clear OCFxA flag and de-assert CPU interrupt
+    void clear_ocf_b(); // clear OCFxB flag and de-assert CPU interrupt
+    void clear_ocf_c(); // clear OCFxC flag and de-assert CPU interrupt
 
     virtual bool is_async_mode() { return false; } // default assumes synchronous timer, so always returns false
 
