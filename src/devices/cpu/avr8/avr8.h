@@ -774,7 +774,7 @@ protected:
 	uint8_t m_lock_bits;
 
 	// CPU registers
-	required_shared_ptr<uint8_t> m_r;
+	std::unique_ptr<uint8_t []> m_r; // no longer shared because it's getting broken up
 	uint32_t m_pc;
 
 	// internal CPU state
@@ -811,6 +811,14 @@ protected:
 	// or don't have dedicated _r() functions
 	template <int Reg> uint8_t reg_r() { return m_r[Reg]; }
 	template <int Reg> void reg_w(uint8_t data) { m_r[Reg] = data; }
+
+	// also temporary.
+	// m_r needs to be allocated 0x100 bytes exactly.
+	// not doing this corrupts the heap and causes weird crashes.
+	// so give the CPU a 32-byte window with the common registers
+	uint8_t regs_r(offs_t offset) { return m_r[offset]; }
+	void regs_w(offs_t offset, uint8_t data) { m_r[offset] = data; }
+
 
 	void set_interrupt_line(uint8_t intidx, uint8_t state);
 	
@@ -1108,7 +1116,6 @@ protected:
 	uint8_t m_spi_rx_shift;
 
 	// timers
-	// required_device<avr8_10bit_prescaler_device> m_synchronous_prescaler; // synchronous prescaler for timers ticking in sync with it
 	optional_device_array<avr8_base_timer_device, 6> m_timers; // optional, because some timers will almost certainly not be present
 	
 	template <int Timer> void update_timer_clock_source(uint8_t selection, const uint8_t old_clock_select);
@@ -1347,12 +1354,6 @@ protected:
 
 	void megaavr_classic_base_internal_map(address_map &map);
 
-	// All sub-devices will have the same Timer 0 and Timer 1 implementations mapped at the same memory locations
-	required_device<avr8_megaavr_timer_0_device> m_timer_0;
-	required_device<avr8_generic_t1_timer_device> m_timer_1;
-
-	// Timers 2-5 vary by chip 
-
 	// GTCCR on most of the classic megaAVRs is pretty much the same
 	void gtccr_w(uint8_t data);
 	uint8_t gtccr_r();
@@ -1470,6 +1471,8 @@ protected:
 	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
 
 	// TODO: add timers 1, 3, 4
+
+	void atmegaxu4_base_internal_map(address_map &map) ATTR_COLD;
 };
 
 class atmega32u4_device : public atmegaxu4_base_device
