@@ -1347,8 +1347,11 @@ protected:
 
 	void megaavr_classic_base_internal_map(address_map &map);
 
-	// All sub-devices will have the same Timer 0 implementation mapped at the same memory locations
+	// All sub-devices will have the same Timer 0 and Timer 1 implementations mapped at the same memory locations
 	required_device<avr8_megaavr_timer_0_device> m_timer_0;
+	required_device<avr8_generic_t1_timer_device> m_timer_1;
+
+	// Timers 2-5 vary by chip 
 
 	// GTCCR on most of the classic megaAVRs is pretty much the same
 	void gtccr_w(uint8_t data);
@@ -1394,7 +1397,6 @@ protected:
 	
 	void atmegax8_base_internal_map(address_map &map);
 
-	// TODO: add timers 1, 2
 };
 
 // ======================> atmega88_device

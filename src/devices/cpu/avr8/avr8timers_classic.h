@@ -255,6 +255,10 @@ protected:
     // then sets the TOV interrupt flag upon wrap to zero.
     // This does not implement the OCxx toggles; subclasses must do that.
     virtual void advance_normal();
+
+    void update_oc_a_nonpwm_generic(); 
+    void update_oc_b_nonpwm_generic(); 
+    void update_oc_c_nonpwm_generic(); 
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -548,12 +552,8 @@ protected:
     void advance_pwm();
     void advance_pwm_ocr0a();
     void advance_fast_pwm(); // =GENERIC_TIMER0_WGM_FAST_PWM
-    void advance_fast_pwm_ocr0a(); 
-    
-    
-    void update_oc0a_normal_or_ctc();
-    void update_oc0b_normal_or_ctc();
-    
+    void advance_fast_pwm_ocr0a();     
+
     void update_oc0a_fast_pwm_on_compare();
     void update_oc0a_fast_pwm_on_top();
     void update_oc0b_fast_pwm_on_compare();
@@ -580,7 +580,7 @@ protected:
 
 /**
  * Timer 0 implementation for most classic megaAVR-series chips,
- * with related megaavr mix-ins. 
+ * with related megaAVR mix-ins. 
  * 
  * This timer implementation does not apply to the ATMega8 and relatives,
  * nor does it apply to the tinyAVRs, because their TIFR and TIMSK registers
@@ -599,36 +599,38 @@ public:
 };
 
 
-#if 0
-class avr8_generic_t1_timer_device : public avr8_base_timer_device
+// TODO: rename to avr8_megaavr_timer_1_device, as all classic megaAVRs share this
+class avr8_generic_t1_timer_device : public avr8_base_timer_device,
+                                     public avr8_timer_prescaler_input_mixin<avr8_generic_t1_timer_device>,
+                                     public avr8_megaavr_tifr_mixin<avr8_generic_t1_timer_device, 0, 1, 2>,
+                                     public avr8_megaavr_tccr_a_mixin<avr8_generic_t1_timer_device, 0, 1, 6, 7, 4, 5>,
+                                     public avr8_megaavr_timsk_mixin<avr8_generic_t1_timer_device, 0, 1, 2>
 {
+    // see https://ww1.microchip.com/downloads/en/DeviceDoc/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061A.pdf
+    // Table 16-4.
     enum : uint8_t
     {
-        GENERIC_TIMER1_WGM_NORMAL         = 0b0000,
-
-        GENERIC_TIMER1_WGM_8_BIT          = 0b0001,
-
-        GENERIC_TIMER1_WGM_9_BIT          = 0b0010,
-
-        GENERIC_TIMER1_WGM_10_BIT         = 0b0011,
-
-        GENERIC_TIMER1_WGM_CTC            = 0b0100,
-
-        GENERIC_TIMER1_WGM_8_BIT_INVERSE  = 0b0101,
-        GENERIC_TIMER1_WGM_9_BIT_INVERSE  = 0b0110,
-        GENERIC_TIMER1_WGM_10_BIT_INVERSE = 0b0111,
-        
-        GENERIC_TIMER1_WGM_ICR1           = 0b1000,
-        GENERIC_TIMER1_WGM_OCR1A          = 0b1001,
-        GENERIC_TIMER1_WGM_ICR1_ALT       = 0b1010,
-        GENERIC_TIMER1_WGM_OCR1A_ALT      = 0b1011,
-
-        GENERIC_TIMER1_WGM_CTC_ICR1       = 0b1100,
-        // 0b1101 reserved                 
-        GENERIC_TIMER1_WGM_FAST_PWM_ICR1  = 0b1110,
-        GENERIC_TIMER1_WGM_FAST_PWM_OCR1A = 0b1111,
+        GENERIC_TIMER1_WGM_NORMAL          = 0b0000, // normal: count 0x0000-0xffff
+        GENERIC_TIMER1_WGM_PWM_8_BIT       = 0b0001, // phase-correct, 8-bit: count 0x0000-0x00ff
+        GENERIC_TIMER1_WGM_PWM_9_BIT       = 0b0010, // phase-correct, 9-bit: count 0x0000-0x01ff
+        GENERIC_TIMER1_WGM_PWM_10_BIT      = 0b0011, // phase-correct, 9-bit: count 0x0000-0x03ff
+        GENERIC_TIMER1_WGM_CTC             = 0b0100, // CTC: count to OCR1A
+        GENERIC_TIMER1_WGM_FAST_PWM_8_BIT  = 0b0101, // fast PWM, 8-bit: count 0x0000-0x00ff
+        GENERIC_TIMER1_WGM_FAST_PWM_9_BIT  = 0b0110, // fast PWM, 9-bit: count 0x0000-0x01ff
+        GENERIC_TIMER1_WGM_FAST_PWM_10_BIT = 0b0111, // fast PWM, 10-bit: count 0x0000-0x03ff
+        GENERIC_TIMER1_WGM_PWM_PFC_ICR1    = 0b1000, // phase/frequency correct; TOP = ICR1
+        GENERIC_TIMER1_WGM_PWM_PFC_OCR1A   = 0b1001, // phase/frequency correct; TOP = OCR1A
+        GENERIC_TIMER1_WGM_PWM_ICR1        = 0b1010, // phase-correct; TOP = ICR1
+        GENERIC_TIMER1_WGM_PWM_OCR1A       = 0b1011, // phase-correct; TOP = OCR1A
+        GENERIC_TIMER1_WGM_CTC_ICR1        = 0b1100, // CTC: count to ICR1
+        // 0b1101: reserved/illegal
+        GENERIC_TIMER1_WGM_FAST_PWM_ICR1   = 0b1110, // fast PWM; count to ICR1
+        GENERIC_TIMER1_WGM_FAST_PWM_OCRA   = 0b1111, // fast PWM; count to OCR1A. craft needs this to run
     };
 
+    // while the CS settings are the same as timer 0,
+    // we can't common them together because other timers
+    // might have different CS settings.
     enum : uint8_t
     {
         GENERIC_TIMER1_CS_DISABLED         = 0b000, // disable timer entirely
@@ -642,7 +644,12 @@ class avr8_generic_t1_timer_device : public avr8_base_timer_device
     };
 
 public:
-	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
+    avr8_generic_t1_timer_device(const machine_config &mconfig,
+        const char *tag,
+        device_t *owner,
+        uint32_t clock);
+
+    void set_ocr_channel_c_enabled(bool enabled) { m_ocr_c_enabled = enabled; } 
 
     void tcnt_h_w(uint8_t data);
     uint8_t tcnt_h_r();
@@ -650,18 +657,64 @@ public:
     uint8_t tcnt_l_r();
 
     void ocr_a_h_w(uint8_t data);
+    uint8_t ocr_a_h_r();
     void ocr_a_l_w(uint8_t data);
-
+    uint8_t ocr_a_l_r();
+    
     void ocr_b_h_w(uint8_t data);
+    uint8_t ocr_b_h_r();
     void ocr_b_l_w(uint8_t data);
+    uint8_t ocr_b_l_r();
+    
+    void ocr_c_h_w(uint8_t data);
+    uint8_t ocr_c_h_r();
+    void ocr_c_l_w(uint8_t data);
+    uint8_t ocr_c_l_r();
 
+    void tccr_b_w(uint8_t data);
+    uint8_t tccr_b_r();
+    void tccr_c_w(uint8_t data);
+    uint8_t tccr_c_r();
+    
+    void tick() override;
+
+    virtual void com_a_w(uint8_t data) override;
+    virtual void com_b_w(uint8_t data) override;
+    virtual void com_c_w(uint8_t data) override;
+
+    virtual void wgm_w(uint8_t data) override;
+    virtual void cs_w(uint8_t data) override;
 protected:
+    avr8_generic_t1_timer_device(const machine_config &mconfig,
+        const char *tag,
+        device_t *owner,
+        uint32_t clock,
+        const device_type device_type);
+
     uint8_t m_temp; // temporary register for 16-bit accesses
-    uint16_t m_ocr_a_buffer; // OCRxA reload value in PWM mode when timer hits TOP or BOTTOM
-    uint16_t m_ocr_b_buffer; // OCRxB reload value in PWM mode when timer hits TOP or BOTTOM
-    uint16_t m_ocr_c_buffer; // OCRxC reload value in PWM mode when timer hits TOP or BOTTOM
+    
+    bool m_ocr_c_enabled; // true only on devices that have 3-channel 16-bit timers
+
+    virtual void install_wgm_callbacks() override;
+    virtual void advance_normal() override;
+
+    virtual uint32_t get_num_bits() const override { return 16; }
+
+
+
+    void advance_pwm_common(uint16_t top);
+
+    void advance_pwm_8bit();
+    void advance_pwm_9bit();
+    void advance_pwm_10bit();
+
+    void update_oc_a_pwm_on_downcount_compare();
+    void update_oc_a_pwm_on_upcount_compare();
+    void update_oc_b_pwm_on_downcount_compare();
+    void update_oc_b_pwm_on_upcount_compare();
+    void update_oc_c_pwm_on_downcount_compare();
+    void update_oc_c_pwm_on_upcount_compare();
 };
-#endif
 
 
 #if 0
@@ -883,6 +936,8 @@ protected:
 // device type definitions
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_0, avr8_generic_t0_timer_device)
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_TIMER_0, avr8_megaavr_timer_0_device)
+
+DECLARE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_1, avr8_generic_t1_timer_device)
 
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_10BIT_PRESCALER, avr8_10bit_prescaler_device)
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_OUTPUT_COMPARE_MODULATOR, avr8_output_compare_modulator_device)
