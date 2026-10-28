@@ -125,10 +125,10 @@
 //#define LOG_OUTPUT_FUNC     osd_printf_info
 #include "logmacro.h"
 
-DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_0, avr8_generic_t0_timer_device, "cavr8gent0", "Classic AVR8 Generic Timer 0");
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_0, avr8_generic_t0_timer_device, "cavr8gent0", "Classic AVR8 generic 8-bit timer 0");
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_TIMER_0, avr8_megaavr_timer_0_device,  "cmegaavrt0", "Classic megaAVR Timer 0");
 
-DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_1, avr8_generic_t1_timer_device, "cavr8gent1", "Classic AVR8 Generic Timer 1");
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_1, avr8_generic_t1_timer_device, "cavr8gent1", "Classic AVR8 generic 16-bit timer");
 
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_10BIT_PRESCALER, avr8_10bit_prescaler_device, "avr8presc", "Classic AVR8 10-bit prescaler");
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_OUTPUT_COMPARE_MODULATOR, avr8_output_compare_modulator_device, "avr8ocm", "Classic AVR8 Output Compare Modulator");
@@ -149,6 +149,7 @@ DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_FAKERTC_TIMER, avr8_megaavr_fakertc_time
 
 avr8_base_timer_device::avr8_base_timer_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock) :
     device_t(mconfig, type, tag, owner, clock),
+    m_upstream_prescaler(*this, "syncprescaler"),
     m_tov_int_cb(*this),
     m_ocf_a_int_cb(*this),
     m_ocf_b_int_cb(*this),
@@ -474,13 +475,7 @@ void avr8_base_timer_device::update_oc_c_nonpwm_generic()
 ///////////////////////////////////////////////////////////////
 
 avr8_10bit_prescaler_device::avr8_10bit_prescaler_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
-    device_t(mconfig, AVR8_CLASSIC_10BIT_PRESCALER, tag, owner, clock),
-    m_clk8_w_cb(*this),
-    m_clk32_w_cb(*this),
-    m_clk64_w_cb(*this),
-    m_clk128_w_cb(*this),
-    m_clk256_w_cb(*this),
-    m_clk1024_w_cb(*this)
+    device_t(mconfig, AVR8_CLASSIC_10BIT_PRESCALER, tag, owner, clock)
 {}
 
 void avr8_10bit_prescaler_device::device_start()
@@ -500,15 +495,6 @@ void avr8_10bit_prescaler_device::tick()
     // TODO: this is a guess; if the signals rise and stay risen
     // then they should not cause the timers downstream to advance
     int next_count = m_sync ? 0 : (m_count + 1) & 0x3ff;
-
-    // per the datasheets, these go high on the clock cycle the division
-    // is satisfied, and are low otherwise
-    if (!m_clk1024_w_cb.isunset()) m_clk1024_w_cb((next_count % 1024) == 0);
-    if (!m_clk256_w_cb.isunset()) m_clk256_w_cb((next_count % 256) == 0);
-    if (!m_clk128_w_cb.isunset()) m_clk128_w_cb((next_count % 128) == 0);
-    if (!m_clk64_w_cb.isunset()) m_clk64_w_cb((next_count % 64) == 0);
-    if (!m_clk32_w_cb.isunset()) m_clk32_w_cb((next_count % 32) == 0);
-    if (!m_clk8_w_cb.isunset()) m_clk8_w_cb((next_count % 8) == 0);
 
     m_count = next_count;
 }
@@ -657,10 +643,10 @@ void avr8_generic_t0_timer_device::tick()
         return;
     }
 
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV8 && !m_clk_div8) return;
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV64 && !m_clk_div64) return;
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV256 && !m_clk_div256) return;
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV1024 && !m_clk_div1024) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV8 && !m_upstream_prescaler->clkdiv_r<8>()) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV64 && !m_upstream_prescaler->clkdiv_r<64>()) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV256 && !m_upstream_prescaler->clkdiv_r<256>()) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV1024 && !m_upstream_prescaler->clkdiv_r<1024>()) return;
     if (m_cs == GENERIC_TIMER0_CS_T0_FALL && !t_falling) return;
     if (m_cs == GENERIC_TIMER0_CS_T0_RISE && !t_rising) return;
     // GENERIC_TIMER0_CS_DIRECT = just fall through
@@ -1272,10 +1258,10 @@ void avr8_generic_t1_timer_device::tick()
         return;
     }
 
-    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV8 && !m_clk_div8) return;
-    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV64 && !m_clk_div64) return;
-    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV256 && !m_clk_div256) return;
-    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV1024 && !m_clk_div1024) return;
+    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV8 && !m_upstream_prescaler->clkdiv_r<8>()) return;
+    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV64 && !m_upstream_prescaler->clkdiv_r<64>()) return;
+    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV256 && !m_upstream_prescaler->clkdiv_r<256>()) return;
+    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV1024 && !m_upstream_prescaler->clkdiv_r<1024>()) return;
     if (m_cs == GENERIC_TIMER1_CS_T1_FALL && !t_falling) return;
     if (m_cs == GENERIC_TIMER1_CS_T1_RISE && !t_rising) return;
     // GENERIC_TIMER1_CS_DIRECT = just fall through

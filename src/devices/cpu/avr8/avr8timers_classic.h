@@ -3,6 +3,95 @@
 
 #pragma once
 
+
+/**
+ * Common 10-bit prescaler implementation.
+ * 
+ * The prescaler for Timer 0 typically has taps at /8, /64, /256 and /1024,
+ * and will always be clocked from clk_io.
+ * 
+ * The prescaler for the fake RTC in Timer 2 has additional /32 and /128 taps.
+ * 
+ * The prescaler outputs will be pulsed (NOT held) on the same clock cycle that
+ * the timer division is satisfied. At all other times they will be pulled low.
+ * See the AVR8 documentation "Timer/Counter Timing Diagrams" section on how that works.
+ */
+class avr8_10bit_prescaler_device : public device_t 
+{
+public:
+    avr8_10bit_prescaler_device(const machine_config &mconfig,
+                                const char *tag,
+                                device_t *owner,
+                                uint32_t clock) ATTR_COLD;
+
+    
+    /**
+     * Tick the prescaler from whatever clock source is feeding it.
+     */
+    void tick();
+
+    void sync_w(uint8_t data);
+    uint8_t sync_r();
+
+    template <int Modulo>
+    uint8_t clkdiv_r() { return (m_count % Modulo) == 0; }
+
+    // device-level overrides
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+
+protected:
+    // internal registers, MUST BE SAVESTATE-ABLE
+    uint16_t m_count;
+    bool m_sync;
+};
+
+/**
+ * Output Compare Modulator. Takes two outputs from timer comparators
+ * and sends them through to the GPIO port pin.
+ * If both outputs are enabled at the same time, the compare outputs
+ * will be modulated together based on the PORTx bit value (0 = AND modulate,
+ * 1 = OR modulate). At all other times it simply routes the PORTx bit
+ * straight to the output pin. In all cases the DDR setting on the receiving
+ * GPIO driver always applies.
+ */
+class avr8_output_compare_modulator_device : public device_t
+{
+public:
+    avr8_output_compare_modulator_device(const machine_config &mconfig,
+                                         const char *tag,
+                                         device_t *owner,
+                                         uint32_t clock);
+
+    // inputs from output compare units
+    void compare_out_a_w(uint8_t data); // OCxx from output compare unit
+    void compare_out_en_a(uint8_t data); // from output compare unit; 1 if COMxx != 0
+    void compare_out_b_w(uint8_t data); // OCxx from output compare unit
+    void compare_out_en_b(uint8_t data); // from output compare unit; 1 if COMxx != 0
+    
+    // inputs from PORTx mux
+    void port_bit_w(uint8_t data); // from PORTx bit
+
+    // outputs to GPIO mux
+    auto gpio_bit_w_cb() { return m_gpio_bit_w_wb.bind(); }
+
+    // device-level overrides
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+
+protected:
+    // internal bits, MUST BE SAVESTATE-ABLE
+    bool m_compare_out_a;
+    bool m_compare_out_en_a;
+    bool m_compare_out_b;
+    bool m_compare_out_en_b;
+    bool m_port_bit;
+
+    void update_outputs();
+
+    devcb_write_line m_gpio_bit_w_wb; // to GPIO output; the receiving GPIO must obey its DDR signal
+};
+
 class avr8_base_timer_device : public device_t 
 {
 public:
@@ -129,6 +218,8 @@ public:
      */
     virtual void clk_io_w(uint8_t data);
 
+    template <typename T> void set_upstream_prescaler_tag(T &&tag) { m_upstream_prescaler.set_tag(std::forward<T>(tag)); }
+
 protected:
     avr8_base_timer_device(const machine_config &mconfig,
 					       const device_type type,
@@ -137,6 +228,9 @@ protected:
                            uint32_t clock) ATTR_COLD;
 
 	typedef delegate<void (void)> timer_func;
+
+    // TODO: should this live in base, or in a different subclass?
+    required_device<avr8_10bit_prescaler_device> m_upstream_prescaler;
 
     // TCNT; active count. MUST BE SAVESTATE-ABLE.
     // 32-bit internally to prevent calculation problems.
@@ -269,46 +363,6 @@ protected:
 //////////////////////////////////////////////////////////////////////////////////////////
 // MIX-INS
 //////////////////////////////////////////////////////////////////////////////////////////
-
-
-/**
- * Adds signals for avr8_10bit_prescaler_device outputs to feed the timer.
- */
-template <typename T>
-class avr8_timer_prescaler_input_mixin
-{
-public:
-    void reset_prescaler_taps()
-    {
-        m_clk_div8 = false;
-        m_clk_div16 = false;
-        m_clk_div32 = false;
-        m_clk_div64 = false;
-        m_clk_div128 = false;
-        m_clk_div256 = false;
-        m_clk_div1024 = false;
-    }
-
-    // taps from prescaler to the timer itself; not all will be used
-    void clk_div8_w(uint8_t data) { m_clk_div8 = data != 0; }
-    void clk_div16_w(uint8_t data) { m_clk_div16 = data != 0; }
-    void clk_div32_w(uint8_t data) { m_clk_div32 = data != 0; }
-    void clk_div64_w(uint8_t data) { m_clk_div64 = data != 0; }
-    void clk_div128_w(uint8_t data) { m_clk_div128 = data != 0; }
-    void clk_div256_w(uint8_t data) { m_clk_div256 = data != 0; }
-    void clk_div1024_w(uint8_t data) { m_clk_div1024 = data != 0; }
-
-protected:
-    // MUST BE SAVESTATE-ABLE!
-    // The mixin will NOT add these for you!
-    bool m_clk_div8;
-    bool m_clk_div16;
-    bool m_clk_div32;
-    bool m_clk_div64;
-    bool m_clk_div128;
-    bool m_clk_div256;
-    bool m_clk_div1024;
-};
 
 /**
  * Generic megaAVR-style TIFR register template.
@@ -464,8 +518,7 @@ public:
 // TIMER IMPLEMENTATIONS
 //////////////////////////////////////////////////////////////////////////////////////////
 
-class avr8_generic_t0_timer_device : public avr8_base_timer_device,
-                                     public avr8_timer_prescaler_input_mixin<avr8_generic_t0_timer_device>
+class avr8_generic_t0_timer_device : public avr8_base_timer_device
 {
 public:
     enum : uint8_t
@@ -606,7 +659,6 @@ public:
 
 // TODO: rename to avr8_megaavr_timer_1_device, as all classic megaAVRs share this
 class avr8_generic_t1_timer_device : public avr8_base_timer_device,
-                                     public avr8_timer_prescaler_input_mixin<avr8_generic_t1_timer_device>,
                                      public avr8_megaavr_tifr_mixin<avr8_generic_t1_timer_device, 0, 1, 2>,
                                      public avr8_megaavr_tccr_a_mixin<avr8_generic_t1_timer_device, 0, 1, 6, 7, 4, 5>,
                                      public avr8_megaavr_timsk_mixin<avr8_generic_t1_timer_device, 0, 1, 2>
@@ -726,8 +778,7 @@ protected:
 
 #if 0
 
-class avr8_generic_fakertc_timer_device : public avr8_base_timer_device,
-                                                 avr8_timer_prescaler_input_mixin
+class avr8_generic_fakertc_timer_device : public avr8_base_timer_device
 public:
     enum : uint8_t
     {
@@ -791,104 +842,6 @@ public:
 };
 #endif
 
-/**
- * Common 10-bit prescaler implementation.
- * 
- * The prescaler for Timer 0 typically has taps at /8, /64, /256 and /1024,
- * and will always be clocked from clk_io.
- * 
- * The prescaler for the fake RTC in Timer 2 has additional /32 and /128 taps.
- * 
- * The prescaler outputs will be pulsed (NOT held) on the same clock cycle that
- * the timer division is satisfied. At all other times they will be pulled low.
- * See the AVR8 documentation "Timer/Counter Timing Diagrams" section on how that works.
- */
-class avr8_10bit_prescaler_device : public device_t 
-{
-public:
-    avr8_10bit_prescaler_device(const machine_config &mconfig,
-                                const char *tag,
-                                device_t *owner,
-                                uint32_t clock) ATTR_COLD;
-
-    auto clk8_w_cb() { return m_clk8_w_cb.bind(); }
-    auto clk32_w_cb() { return m_clk32_w_cb.bind(); }
-    auto clk64_w_cb() { return m_clk64_w_cb.bind(); }
-    auto clk128_w_cb() { return m_clk128_w_cb.bind(); }
-    auto clk256_w_cb() { return m_clk256_w_cb.bind(); }
-    auto clk1024_w_cb() { return m_clk1024_w_cb.bind(); }
-    
-    /**
-     * Tick the prescaler from whatever clock source is feeding it.
-     */
-    void tick();
-
-    void sync_w(uint8_t data);
-    uint8_t sync_r();
-
-    // device-level overrides
-	virtual void device_start() override ATTR_COLD;
-	virtual void device_reset() override ATTR_COLD;
-
-protected:
-    // internal registers, MUST BE SAVESTATE-ABLE
-    uint16_t m_count;
-    bool m_sync;
-    
-    // Prescaler callbacks, to be installed during various device_add_mconfig phases
-    devcb_write_line m_clk8_w_cb;
-    devcb_write_line m_clk32_w_cb;
-    devcb_write_line m_clk64_w_cb;
-    devcb_write_line m_clk128_w_cb;
-    devcb_write_line m_clk256_w_cb;
-    devcb_write_line m_clk1024_w_cb;
-};
-
-/**
- * Output Compare Modulator. Takes two outputs from timer comparators
- * and sends them through to the GPIO port pin.
- * If both outputs are enabled at the same time, the compare outputs
- * will be modulated together based on the PORTx bit value (0 = AND modulate,
- * 1 = OR modulate). At all other times it simply routes the PORTx bit
- * straight to the output pin. In all cases the DDR setting on the receiving
- * GPIO driver always applies.
- */
-class avr8_output_compare_modulator_device : public device_t
-{
-public:
-    avr8_output_compare_modulator_device(const machine_config &mconfig,
-                                         const char *tag,
-                                         device_t *owner,
-                                         uint32_t clock);
-
-    // inputs from output compare units
-    void compare_out_a_w(uint8_t data); // OCxx from output compare unit
-    void compare_out_en_a(uint8_t data); // from output compare unit; 1 if COMxx != 0
-    void compare_out_b_w(uint8_t data); // OCxx from output compare unit
-    void compare_out_en_b(uint8_t data); // from output compare unit; 1 if COMxx != 0
-    
-    // inputs from PORTx mux
-    void port_bit_w(uint8_t data); // from PORTx bit
-
-    // outputs to GPIO mux
-    auto gpio_bit_w_cb() { return m_gpio_bit_w_wb.bind(); }
-
-    // device-level overrides
-	virtual void device_start() override ATTR_COLD;
-	virtual void device_reset() override ATTR_COLD;
-
-protected:
-    // internal bits, MUST BE SAVESTATE-ABLE
-    bool m_compare_out_a;
-    bool m_compare_out_en_a;
-    bool m_compare_out_b;
-    bool m_compare_out_en_b;
-    bool m_port_bit;
-
-    void update_outputs();
-
-    devcb_write_line m_gpio_bit_w_wb; // to GPIO output; the receiving GPIO must obey its DDR signal
-};
 
 #if 0
 

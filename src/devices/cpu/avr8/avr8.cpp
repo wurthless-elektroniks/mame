@@ -1731,6 +1731,7 @@ void atmegax8_base_device::device_add_mconfig(machine_config &config)
 
 	// Timer 0 signals: OC0A = PD6, OC0B = PD5, T0 = PD4
 	auto timer0 = subdevice<avr8_megaavr_timer_0_device>("timer0");
+	timer0->set_upstream_prescaler_tag("syncprescale");
 	timer0->oc_a_w_cb().set(&atmegax8_base_device::set_gpio_bit<PORTD, 6>, "set_gpio_bit_pd6");
 	timer0->oc_a_toggle_w_cb().set(&atmegax8_base_device::toggle_gpio_bit<PORTD, 6>, "toggle_gpio_bit_pd6");
 	timer0->oc_b_w_cb().set(&atmegax8_base_device::set_gpio_bit<PORTD, 5>, "set_gpio_bit_pd5");
@@ -1739,39 +1740,14 @@ void atmegax8_base_device::device_add_mconfig(machine_config &config)
 
 	// Timer 1: generic 16-bit
 	// Timer 1 signals: OC1A = PB1, OC1B = PB2, T1 = PD5
-	auto timer1 = subdevice<avr8_megaavr_timer_0_device>("timer1");
+	auto timer1 = subdevice<avr8_generic_t1_timer_device>("timer1");
+	timer1->set_upstream_prescaler_tag("syncprescale");
 	timer1->oc_a_w_cb().set(&atmegax8_base_device::set_gpio_bit<PORTB, 1>, "set_gpio_bit_pb1");
 	timer1->oc_a_toggle_w_cb().set(&atmegax8_base_device::toggle_gpio_bit<PORTB, 1>, "toggle_gpio_bit_pb1");
 	timer1->oc_b_w_cb().set(&atmegax8_base_device::set_gpio_bit<PORTB, 2>, "set_gpio_bit_pb2");
 	timer1->oc_b_toggle_w_cb().set(&atmegax8_base_device::toggle_gpio_bit<PORTD, 2>, "toggle_gpio_bit_pb2");
 	// TODO: T1
 
-	auto prescaler = subdevice<avr8_10bit_prescaler_device>("syncprescale");
-	
-	// 10-bit prescaler feeds clk_io divisions to both timers 0 and 1 at the same time
-	prescaler->clk8_w_cb().set([this] (uint8_t data)
-	{
-		subdevice<avr8_megaavr_timer_0_device>("timer0")->clk_div8_w(data);
-		subdevice<avr8_generic_t1_timer_device>("timer1")->clk_div8_w(data);
-	});
-
-	prescaler->clk64_w_cb().set([this] (uint8_t data)
-	{
-		subdevice<avr8_megaavr_timer_0_device>("timer0")->clk_div64_w(data);
-		subdevice<avr8_generic_t1_timer_device>("timer1")->clk_div64_w(data);
-	});
-
-	prescaler->clk256_w_cb().set([this] (uint8_t data)
-	{
-		subdevice<avr8_megaavr_timer_0_device>("timer0")->clk_div256_w(data);
-		subdevice<avr8_generic_t1_timer_device>("timer1")->clk_div256_w(data);
-	});
-
-	prescaler->clk1024_w_cb().set([this] (uint8_t data)
-	{
-		subdevice<avr8_megaavr_timer_0_device>("timer0")->clk_div1024_w(data);
-		subdevice<avr8_generic_t1_timer_device>("timer1")->clk_div1024_w(data);
-	});
 	
 #if 0
 	// Timer 2: 8-bit fake RTC
@@ -4574,6 +4550,9 @@ void avr8_device<NumTimers>::ucsr0c_w(uint8_t data)
 template <int NumTimers>
 void avr8_device<NumTimers>::execute_run()
 {
+	// TODO: turn this back into a required_device
+	auto syncprescale = subdevice<avr8_10bit_prescaler_device>("syncprescale");
+
 	while (m_icount > 0)
 	{
 		if (m_sleeping)
@@ -4625,7 +4604,7 @@ void avr8_device<NumTimers>::execute_run()
 				}
 			}
 
-			subdevice<avr8_10bit_prescaler_device>("syncprescale")->tick();
+			syncprescale->tick();
 
 			// TODO: if an async timer is present, its controller still needs to be notified
 			// of a clk_io cycle because the timer might be in synchronous mode
