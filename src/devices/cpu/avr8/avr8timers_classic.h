@@ -325,6 +325,7 @@ protected:
     inline bool is_compare_a() { return m_tcnt == m_ocr_a; }
     inline bool is_compare_b() { return m_tcnt == m_ocr_b; }
     inline bool is_compare_c() { return m_tcnt == m_ocr_c; }
+    inline bool is_max_count() { return m_tcnt == max_count(); }
     inline bool will_compare_a() { return next_count() == m_ocr_a; }
     inline bool will_compare_b() { return next_count() == m_ocr_b; }
     inline bool will_compare_c() { return next_count() == m_ocr_c; }
@@ -450,7 +451,7 @@ public:
 
         if ((0 <= Wgm0Bit && Wgm0Bit <= 7) || (0 <= Wgm1Bit && Wgm1Bit <= 7))
         {
-            uint8_t wgm = ((T*)this)->wgm_r() & 0b11111100;
+            uint8_t wgm = ((T*)this)->wgm_r();
             if (0 <= Wgm1Bit && Wgm1Bit <= 7) value |= BIT(wgm, 1) << Wgm1Bit;
             if (0 <= Wgm0Bit && Wgm0Bit <= 7) value |= BIT(wgm, 0) << Wgm0Bit;
         }
@@ -764,7 +765,7 @@ protected:
     void advance_pwm_8bit();
     void advance_pwm_9bit();
     void advance_pwm_10bit();
-
+    void advance_ctc_ocr_a();
     void advance_fast_pwm_ocr_a();
 
     void update_oc_a_pwm_on_downcount_compare();
