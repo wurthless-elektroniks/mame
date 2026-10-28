@@ -33,8 +33,9 @@ public:
     void sync_w(uint8_t data);
     uint8_t sync_r();
 
+    // NOTE: this condition is only true on the clock cycle the division is satisfied.
     template <int Modulo>
-    uint8_t clkdiv_r() { return (m_count % Modulo) == 0; }
+    uint8_t clkdiv_r() { return !m_sync && (m_count % Modulo) == 0; }
 
     // device-level overrides
 	virtual void device_start() override ATTR_COLD;
@@ -660,7 +661,7 @@ public:
 
 // TODO: rename to avr8_megaavr_timer_1_device, as all classic megaAVRs share this
 class avr8_generic_t1_timer_device : public avr8_base_timer_device,
-                                     public avr8_megaavr_tifr_mixin<avr8_generic_t1_timer_device, 0, 1, 2>,
+                                     public avr8_megaavr_tifr_mixin<avr8_generic_t1_timer_device, 0, 1, 2, 3, -1>,
                                      public avr8_megaavr_tccr_a_mixin<avr8_generic_t1_timer_device, 0, 1, 6, 7, 4, 5>,
                                      public avr8_megaavr_timsk_mixin<avr8_generic_t1_timer_device, 0, 1, 2>
 {

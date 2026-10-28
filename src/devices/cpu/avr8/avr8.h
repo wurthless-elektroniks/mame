@@ -493,6 +493,9 @@ protected:
 		INTIDX_TOV5,
 	//---------------------------------
 
+		// new guys free of the old legacy crap
+		INTIDX_OCF3C,
+
 		INTIDX_COUNT
 	};
 

@@ -363,7 +363,10 @@ void avr8_base_timer_device::com_c_w(uint8_t data)
 
 void avr8_base_timer_device::clk_io_w(uint8_t data)
 {
-    if (!m_clk_io && data != 0 && !is_async_mode()) tick();
+    if (!m_clk_io && data != 0 && !is_async_mode())
+    {
+        tick();
+    }
     m_clk_io = data != 0;
 }
 
@@ -377,12 +380,8 @@ void avr8_base_timer_device::advance_normal()
     if (will_next_count_overflow())
     {
         raise_tov();
-        m_tcnt = 0;
     }
-    else
-    {
-        m_tcnt = next_count();
-    }
+    m_tcnt = next_count();
 }
 
 void avr8_base_timer_device::update_oc_a_nonpwm_generic()
@@ -418,7 +417,6 @@ void avr8_base_timer_device::update_oc_b_nonpwm_generic()
 {
     if (m_oc_b_w_cb.isunset() || m_oc_b_toggle_w_cb.isunset())
     {
-        logerror("update_oc_b_nonpwm_generic() called when OCxB callbacks are not set\n");
         return;
     }
 
@@ -447,7 +445,6 @@ void avr8_base_timer_device::update_oc_c_nonpwm_generic()
 {
     if (m_oc_c_w_cb.isunset() || m_oc_c_toggle_w_cb.isunset())
     {
-        logerror("update_oc_c_nonpwm_generic() called when OCxC callbacks are not set\n");
         return;
     }
 
@@ -630,7 +627,8 @@ void avr8_generic_t0_timer_device::tick()
 {
     if (m_prtim) return;
 
-    // Tx pin is sampled on every I/O clock, so check that first
+    // Tx pin is sampled on every I/O clock
+    // TODO: where to put this? check async timer docs
     bool t_rising = false, t_falling = false;
     if (m_t != m_t_last)
     {
@@ -638,6 +636,7 @@ void avr8_generic_t0_timer_device::tick()
         t_falling = m_t_last && !m_t;
         m_t = m_t_last;
     }
+
 
     if (m_cs == GENERIC_TIMER0_CS_DISABLED)
     {
@@ -803,23 +802,23 @@ void avr8_generic_t0_timer_device::advance_pwm_ocr0a()
 
 void avr8_generic_t0_timer_device::advance_fast_pwm()
 {
-	// FIXME: OC0x values are supposed to be latched when TCNT0 is zero.
 	if (will_compare_a())
 	{
-		// TODO: set 0C0A
+        update_oc0a_fast_pwm_on_compare();
 	}
-	else if (will_compare_b())
+	
+    if (will_compare_b())
 	{
-		// TODO: set 0C0B
+        update_oc0b_fast_pwm_on_compare();
 	}
 
 	if (will_next_count_overflow())
 	{
 		raise_tov();
-		// TODO: clear both OC0x values here
+        update_oc0a_fast_pwm_on_top();
+        update_oc0b_fast_pwm_on_top();
 	}
     
-
     m_tcnt = next_count();
 }
 
@@ -1383,44 +1382,20 @@ void avr8_generic_t1_timer_device::advance_ctc_ocr_a()
     {
         // LOGMASKED(LOG_TIMER1_TICK, "%s: timer1 WGM1 CTC_OCR, TOP, new count %04x, OCR1A/B %04x/%04x, ICR1 %04x\n", machine().describe_context(), timer1_count, m_ocr1[AVR8_REG_A], m_ocr1[AVR8_REG_B], icr1);
         raise_tov();
-        m_tcnt = 0;
 
-        will_increment = false;
+        // will_increment left true because next_count() below will wrap the timer
     }
 
     if (is_compare_a())
     {
         // LOGMASKED(LOG_TIMER1_TICK, "%s: timer1 WGM1 CTC_OCR, OCR1A, new count %04x, OCR1A/B %04x/%04x, ICR1 %04x\n", machine().describe_context(), timer1_count, m_ocr1[AVR8_REG_A], m_ocr1[AVR8_REG_B], icr1);
         
+        // explicit timer reset upon compare
         m_tcnt = 0;
         will_increment = false;
 
-        // TODO: bring all this out
-        // switch (ChannelModeA)
-        // {
-        // case 0: /* Normal Operation; OC1A/B disconnected */
-        //     break;
-
-        // case 1: /* Toggle OC1A on compare match */
-        //     LOGMASKED(LOG_TIMER1, "%s: timer1: Toggle OC1A on match\n", machine().describe_context());
-        //     m_r[PORTB] ^= 2;
-        //     m_gpio_out_cb[GPIOB](m_r[PORTB]);
-        //     break;
-
-        // case 2: /* Clear OC1A/B on compare match */
-        //     LOGMASKED(LOG_TIMER1, "%s: timer1: Clear OC1A on match\n", machine().describe_context());
-        //     m_r[PORTB] &= ~(2 << AVR8_REG_A);
-        //     m_gpio_out_cb[GPIOB](m_r[PORTB]);
-        //     break;
-
-        // case 3: /* Set OC1A/B on compare match */
-        //     LOGMASKED(LOG_TIMER1, "%s: timer1: Set OC1A on match\n", machine().describe_context());
-        //     m_r[PORTB] |= 2 << AVR8_REG_A;
-        //     m_gpio_out_cb[GPIOB](m_r[PORTB]);
-        //     break;
-        // }
-
         raise_ocf_a();
+        update_oc_a_nonpwm_generic();
     }
     else if (m_tcnt == 0)
     {
@@ -1430,32 +1405,14 @@ void avr8_generic_t1_timer_device::advance_ctc_ocr_a()
 
     if (is_compare_b())
     {
-        // LOGMASKED(LOG_TIMER1_TICK, "%s: timer1 WGM1 CTC_OCR, OCR1B, new count %04x, OCR1A/B %04x/%04x, ICR1 %04x\n", machine().describe_context(), timer1_count, m_ocr1[AVR8_REG_A], m_ocr1[AVR8_REG_B], icr1);
-        // switch (ChannelModeB)
-        // {
-        // case 0: /* Normal Operation; OC1A/B disconnected */
-        // case 1: /* Toggle OC1A on compare match */
-        //     break;
-
-        // case 2: /* Clear OC1A/B on compare match */
-        //     LOGMASKED(LOG_TIMER1, "%s: timer1: Clear OC1B on match\n", machine().describe_context());
-        //     m_r[PORTB] &= ~(2 << AVR8_REG_B);
-        //     m_gpio_out_cb[GPIOB](m_r[PORTB]);
-        //     break;
-
-        // case 3: /* Set OC1A/B on compare match */
-        //     LOGMASKED(LOG_TIMER1, "%s: timer1: Set OC1B on match\n", machine().describe_context());
-        //     m_r[PORTB] |= 2 << AVR8_REG_B;
-        //     m_gpio_out_cb[GPIOB](m_r[PORTB]);
-        //     break;
-        // }
-
         raise_ocf_b();
+        update_oc_b_nonpwm_generic();
     }
     
     if (m_ocr_c_enabled && is_compare_c())
     {
         raise_ocf_c();
+        update_oc_c_nonpwm_generic();
     }
 
     if (will_increment) m_tcnt = next_count();
