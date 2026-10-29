@@ -388,7 +388,6 @@ void avr8_base_timer_device::update_oc_a_nonpwm_generic()
 {
     if (m_oc_a_w_cb.isunset() || m_oc_a_toggle_w_cb.isunset())
     {
-        logerror("update_oc_a_nonpwm_generic() called when OCxA callbacks are not set\n");
         return;
     }
 
@@ -640,7 +639,7 @@ void avr8_generic_t0_timer_device::tick()
 
     if (m_cs == GENERIC_TIMER0_CS_DISABLED)
     {
-        LOGMASKED(LOG_TIMER0_TICK, "%s: timer is disabled (m_cs == GENERIC_TIMER0_CS_DISABLED), doing nothing.\n", machine().describe_context());
+        // LOGMASKED(LOG_TIMER0_TICK, "%s: timer is disabled (m_cs == GENERIC_TIMER0_CS_DISABLED), doing nothing.\n", machine().describe_context());
         return;
     }
 
@@ -1250,7 +1249,7 @@ void avr8_generic_t1_timer_device::tick()
 
     if (m_cs == GENERIC_TIMER1_CS_DISABLED)
     {
-        LOGMASKED(LOG_TIMER1_TICK, "%s: timer is disabled (m_cs == GENERIC_TIMER1_CS_DISABLED), doing nothing.\n", machine().describe_context());
+        // LOGMASKED(LOG_TIMER1_TICK, "%s: timer is disabled (m_cs == GENERIC_TIMER1_CS_DISABLED), doing nothing.\n", machine().describe_context());
         return;
     }
 
