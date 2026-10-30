@@ -961,9 +961,7 @@ protected:
 
 /**
  * TODO: rename this class to something like avr8_classic_base_device
- * and kill the NumTimers template-ification
  */
-template <int NumTimers>
 class avr8_device : public avr8_base_device
 {
 public:
@@ -1339,7 +1337,7 @@ protected:
  * except for the ATMega8/16/32 series, which use different data address maps
  * and registers closer to the classic tinyAVRs.
  */
-class megaavr_classic_base_device : public avr8_device<3>
+class megaavr_classic_base_device : public avr8_device
 {
 
 protected:

@@ -542,8 +542,7 @@ DEFINE_DEVICE_TYPE(ATMEGA2560, atmega2560_device, "atmega2560", "Atmel ATmega256
 
 // TODO: this common internal map is too megaAVR specific
 // and is in a holding cell awaiting execution
-template <int NumTimers>
-void avr8_device<NumTimers>::base_internal_map(address_map &map)
+void avr8_device::base_internal_map(address_map &map)
 {
 	map(0x0000, 0x01ff).rw(FUNC(avr8_device::regs_r), FUNC(avr8_device::regs_w));
 	map(0x0020, 0x0020).r(FUNC(avr8_device::pin_r<0>));
@@ -1238,8 +1237,7 @@ avr8_base_device::avr8_base_device(const machine_config &mconfig, const char *ta
 {
 }
 
-template <int NumTimers>
-avr8_device<NumTimers>::avr8_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock, const device_type type, uint32_t addr_mask, address_map_constructor internal_map)
+avr8_device::avr8_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock, const device_type type, uint32_t addr_mask, address_map_constructor internal_map)
 	: avr8_base_device(mconfig, tag, owner, clock, type, addr_mask, internal_map)
 	, m_gpio_out_cb(*this)
 	, m_gpio_in_cb(*this, 0)
@@ -1254,11 +1252,11 @@ avr8_device<NumTimers>::avr8_device(const machine_config &mconfig, const char *t
 	// Fill in default callbacks
 	for (int i = 0; i < 8*4; i++)
 	{
-		m_timer0_ticks[i] = timer_func(&avr8_device<NumTimers>::timer0_tick_default, this);
+		m_timer0_ticks[i] = timer_func(&avr8_device::timer0_tick_default, this);
 	}
 	for (int i = 0; i < 8; i++)
 	{
-		m_timer2_ticks[i] = timer_func(&avr8_device<NumTimers>::timer2_tick_default, this);
+		m_timer2_ticks[i] = timer_func(&avr8_device::timer2_tick_default, this);
 	}
 
 	// Fill in the mode-specific callbacks
@@ -1269,105 +1267,105 @@ avr8_device<NumTimers>::avr8_device(const machine_config &mconfig, const char *t
 			switch (i)
 			{
 				case 0:
-					m_timer0_ticks[(i << 2) + j] = timer_func(&avr8_device<NumTimers>::timer0_tick_norm, this);
+					m_timer0_ticks[(i << 2) + j] = timer_func(&avr8_device::timer0_tick_norm, this);
 					break;
 				case 1:
-					m_timer0_ticks[(i << 2) + j] = timer_func(&avr8_device<NumTimers>::timer0_tick_pwm_pc, this);
+					m_timer0_ticks[(i << 2) + j] = timer_func(&avr8_device::timer0_tick_pwm_pc, this);
 					break;
 				case 3:
-					m_timer0_ticks[(i << 2) + j] = timer_func(&avr8_device<NumTimers>::timer0_tick_fast_pwm, this);
+					m_timer0_ticks[(i << 2) + j] = timer_func(&avr8_device::timer0_tick_fast_pwm, this);
 					break;
 				case 5:
-					m_timer0_ticks[(i << 2) + j] = timer_func(&avr8_device<NumTimers>::timer0_tick_pwm_pc_cmp, this);
+					m_timer0_ticks[(i << 2) + j] = timer_func(&avr8_device::timer0_tick_pwm_pc_cmp, this);
 					break;
 				case 7:
-					m_timer0_ticks[(i << 2) + j] = timer_func(&avr8_device<NumTimers>::timer0_tick_fast_pwm_cmp, this);
+					m_timer0_ticks[(i << 2) + j] = timer_func(&avr8_device::timer0_tick_fast_pwm_cmp, this);
 					break;
 			}
 		}
 	}
 
-	m_timer0_ticks[(WGM02_CTC_CMP << 2) | 0] = timer_func(&avr8_device<NumTimers>::timer0_tick_ctc_norm, this);
-	m_timer0_ticks[(WGM02_CTC_CMP << 2) | 1] = timer_func(&avr8_device<NumTimers>::timer0_tick_ctc_toggle, this);
-	m_timer0_ticks[(WGM02_CTC_CMP << 2) | 2] = timer_func(&avr8_device<NumTimers>::timer0_tick_ctc_clear, this);
-	m_timer0_ticks[(WGM02_CTC_CMP << 2) | 3] = timer_func(&avr8_device<NumTimers>::timer0_tick_ctc_set, this);
+	m_timer0_ticks[(WGM02_CTC_CMP << 2) | 0] = timer_func(&avr8_device::timer0_tick_ctc_norm, this);
+	m_timer0_ticks[(WGM02_CTC_CMP << 2) | 1] = timer_func(&avr8_device::timer0_tick_ctc_toggle, this);
+	m_timer0_ticks[(WGM02_CTC_CMP << 2) | 2] = timer_func(&avr8_device::timer0_tick_ctc_clear, this);
+	m_timer0_ticks[(WGM02_CTC_CMP << 2) | 3] = timer_func(&avr8_device::timer0_tick_ctc_set, this);
 
 	for (int i = 0; i < 16; i++)
 	{
-		m_timer1_ticks[(WGM1_NORMAL << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_normal, this);
-		m_timer1_ticks[(WGM1_PWM_8_PC << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_pwm8_pc, this);
-		m_timer1_ticks[(WGM1_PWM_9_PC << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_pwm9_pc, this);
-		m_timer1_ticks[(WGM1_PWM_10_PC << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_pwm10_pc, this);
-		m_timer1_ticks[(WGM1_FAST_PWM_8 << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm8, this);
-		m_timer1_ticks[(WGM1_FAST_PWM_9 << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm9, this);
-		m_timer1_ticks[(WGM1_FAST_PWM_10 << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm10, this);
-		m_timer1_ticks[(WGM1_PWM_PFC_ICR << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_pwm_pfc_icr, this);
-		m_timer1_ticks[(WGM1_PWM_PFC_OCR << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_pwm_pfc_ocr, this);
-		m_timer1_ticks[(WGM1_PWM_PC_ICR << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_pwm_pc_icr, this);
-		m_timer1_ticks[(WGM1_PWM_PC_OCR << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_pwm_pc_ocr, this);
-		m_timer1_ticks[(WGM1_CTC_ICR << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_icr, this);
-		m_timer1_ticks[(WGM1_RESERVED << 4) | i] = timer_func(&avr8_device<NumTimers>::timer1_tick_resv, this);
+		m_timer1_ticks[(WGM1_NORMAL << 4) | i] = timer_func(&avr8_device::timer1_tick_normal, this);
+		m_timer1_ticks[(WGM1_PWM_8_PC << 4) | i] = timer_func(&avr8_device::timer1_tick_pwm8_pc, this);
+		m_timer1_ticks[(WGM1_PWM_9_PC << 4) | i] = timer_func(&avr8_device::timer1_tick_pwm9_pc, this);
+		m_timer1_ticks[(WGM1_PWM_10_PC << 4) | i] = timer_func(&avr8_device::timer1_tick_pwm10_pc, this);
+		m_timer1_ticks[(WGM1_FAST_PWM_8 << 4) | i] = timer_func(&avr8_device::timer1_tick_fast_pwm8, this);
+		m_timer1_ticks[(WGM1_FAST_PWM_9 << 4) | i] = timer_func(&avr8_device::timer1_tick_fast_pwm9, this);
+		m_timer1_ticks[(WGM1_FAST_PWM_10 << 4) | i] = timer_func(&avr8_device::timer1_tick_fast_pwm10, this);
+		m_timer1_ticks[(WGM1_PWM_PFC_ICR << 4) | i] = timer_func(&avr8_device::timer1_tick_pwm_pfc_icr, this);
+		m_timer1_ticks[(WGM1_PWM_PFC_OCR << 4) | i] = timer_func(&avr8_device::timer1_tick_pwm_pfc_ocr, this);
+		m_timer1_ticks[(WGM1_PWM_PC_ICR << 4) | i] = timer_func(&avr8_device::timer1_tick_pwm_pc_icr, this);
+		m_timer1_ticks[(WGM1_PWM_PC_OCR << 4) | i] = timer_func(&avr8_device::timer1_tick_pwm_pc_ocr, this);
+		m_timer1_ticks[(WGM1_CTC_ICR << 4) | i] = timer_func(&avr8_device::timer1_tick_ctc_icr, this);
+		m_timer1_ticks[(WGM1_RESERVED << 4) | i] = timer_func(&avr8_device::timer1_tick_resv, this);
 	}
 
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  0] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_norm_norm, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  1] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_norm_toggle, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  2] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_norm_clear, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  3] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_norm_set, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  4] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_toggle_norm, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  5] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_toggle_toggle, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  6] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_toggle_clear, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  7] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_toggle_set, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  8] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_clear_norm, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  9] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_clear_toggle, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 10] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_clear_clear, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 11] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_clear_set, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 12] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_set_norm, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 13] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_set_toggle, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 14] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_set_clear, this);
-	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 15] = timer_func(&avr8_device<NumTimers>::timer1_tick_ctc_ocr_set_set, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  0] = timer_func(&avr8_device::timer1_tick_ctc_ocr_norm_norm, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  1] = timer_func(&avr8_device::timer1_tick_ctc_ocr_norm_toggle, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  2] = timer_func(&avr8_device::timer1_tick_ctc_ocr_norm_clear, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  3] = timer_func(&avr8_device::timer1_tick_ctc_ocr_norm_set, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  4] = timer_func(&avr8_device::timer1_tick_ctc_ocr_toggle_norm, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  5] = timer_func(&avr8_device::timer1_tick_ctc_ocr_toggle_toggle, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  6] = timer_func(&avr8_device::timer1_tick_ctc_ocr_toggle_clear, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  7] = timer_func(&avr8_device::timer1_tick_ctc_ocr_toggle_set, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  8] = timer_func(&avr8_device::timer1_tick_ctc_ocr_clear_norm, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) |  9] = timer_func(&avr8_device::timer1_tick_ctc_ocr_clear_toggle, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 10] = timer_func(&avr8_device::timer1_tick_ctc_ocr_clear_clear, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 11] = timer_func(&avr8_device::timer1_tick_ctc_ocr_clear_set, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 12] = timer_func(&avr8_device::timer1_tick_ctc_ocr_set_norm, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 13] = timer_func(&avr8_device::timer1_tick_ctc_ocr_set_toggle, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 14] = timer_func(&avr8_device::timer1_tick_ctc_ocr_set_clear, this);
+	m_timer1_ticks[(WGM1_CTC_OCR << 4) | 15] = timer_func(&avr8_device::timer1_tick_ctc_ocr_set_set, this);
 
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  0] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_norm_norm, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  1] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_norm_toggle, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  2] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_norm_clear, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  3] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_norm_set, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  4] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_toggle_norm, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  5] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_toggle_toggle, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  6] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_toggle_clear, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  7] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_toggle_set, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  8] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_clear_norm, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  9] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_clear_toggle, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 10] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_clear_clear, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 11] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_clear_set, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 12] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_set_norm, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 13] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_set_toggle, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 14] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_set_clear, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 15] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_icr_set_set, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  0] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_norm_norm, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  1] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_norm_toggle, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  2] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_norm_clear, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  3] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_norm_set, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  4] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_toggle_norm, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  5] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_toggle_toggle, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  6] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_toggle_clear, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  7] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_toggle_set, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  8] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_clear_norm, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) |  9] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_clear_toggle, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 10] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_clear_clear, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 11] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_clear_set, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 12] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_set_norm, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 13] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_set_toggle, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 14] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_set_clear, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_ICR << 4) | 15] = timer_func(&avr8_device::timer1_tick_fast_pwm_icr_set_set, this);
 
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  0] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_norm_norm, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  1] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_norm_toggle, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  2] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_norm_clear, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  3] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_norm_set, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  4] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_toggle_norm, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  5] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_toggle_toggle, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  6] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_toggle_clear, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  7] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_toggle_set, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  8] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_clear_norm, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  9] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_clear_toggle, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 10] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_clear_clear, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 11] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_clear_set, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 12] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_set_norm, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 13] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_set_toggle, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 14] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_set_clear, this);
-	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 15] = timer_func(&avr8_device<NumTimers>::timer1_tick_fast_pwm_ocr_set_set, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  0] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_norm_norm, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  1] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_norm_toggle, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  2] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_norm_clear, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  3] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_norm_set, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  4] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_toggle_norm, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  5] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_toggle_toggle, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  6] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_toggle_clear, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  7] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_toggle_set, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  8] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_clear_norm, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) |  9] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_clear_toggle, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 10] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_clear_clear, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 11] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_clear_set, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 12] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_set_norm, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 13] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_set_toggle, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 14] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_set_clear, this);
+	m_timer1_ticks[(WGM1_FAST_PWM_OCR << 4) | 15] = timer_func(&avr8_device::timer1_tick_fast_pwm_ocr_set_set, this);
 
-	m_timer2_ticks[WGM02_NORMAL] = timer_func(&avr8_device<NumTimers>::timer2_tick_norm, this);
-	m_timer2_ticks[WGM02_PWM_PC] = timer_func(&avr8_device<NumTimers>::timer2_tick_default, this);
-	m_timer2_ticks[WGM02_CTC_CMP] = timer_func(&avr8_device<NumTimers>::timer2_tick_default, this);
-	m_timer2_ticks[WGM02_FAST_PWM] = timer_func(&avr8_device<NumTimers>::timer2_tick_fast_pwm, this);
-	m_timer2_ticks[WGM02_RESERVED0] = timer_func(&avr8_device<NumTimers>::timer2_tick_default, this);
-	m_timer2_ticks[WGM02_PWM_PC_CMP] = timer_func(&avr8_device<NumTimers>::timer2_tick_default, this);
-	m_timer2_ticks[WGM02_RESERVED1] = timer_func(&avr8_device<NumTimers>::timer2_tick_default, this);
-	m_timer2_ticks[WGM02_FAST_PWM_CMP] = timer_func(&avr8_device<NumTimers>::timer2_tick_fast_pwm_cmp, this);
+	m_timer2_ticks[WGM02_NORMAL] = timer_func(&avr8_device::timer2_tick_norm, this);
+	m_timer2_ticks[WGM02_PWM_PC] = timer_func(&avr8_device::timer2_tick_default, this);
+	m_timer2_ticks[WGM02_CTC_CMP] = timer_func(&avr8_device::timer2_tick_default, this);
+	m_timer2_ticks[WGM02_FAST_PWM] = timer_func(&avr8_device::timer2_tick_fast_pwm, this);
+	m_timer2_ticks[WGM02_RESERVED0] = timer_func(&avr8_device::timer2_tick_default, this);
+	m_timer2_ticks[WGM02_PWM_PC_CMP] = timer_func(&avr8_device::timer2_tick_default, this);
+	m_timer2_ticks[WGM02_RESERVED1] = timer_func(&avr8_device::timer2_tick_default, this);
+	m_timer2_ticks[WGM02_FAST_PWM_CMP] = timer_func(&avr8_device::timer2_tick_fast_pwm_cmp, this);
 
 	m_timer0_tick = m_timer0_ticks[0];
 	m_timer1_tick = m_timer1_ticks[0];
@@ -1547,12 +1545,11 @@ void avr8_base_device::device_start()
 	save_item(NAME(m_int_statuses));
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::device_start()
+void avr8_device::device_start()
 {
 	avr8_base_device::device_start();
 
-	m_adc_timer = timer_alloc(FUNC(avr8_device<NumTimers>::adc_conversion_complete), this);
+	m_adc_timer = timer_alloc(FUNC(avr8_device::adc_conversion_complete), this);
 
 	// GPIO
 	save_item(NAME(m_gpio_in));
@@ -1582,7 +1579,7 @@ void avr8_device<NumTimers>::device_start()
 
 void megaavr_classic_base_device::device_start()
 {
-	avr8_device<3>::device_start();
+	avr8_device::device_start();
 
 	save_item(NAME(m_tsm));
 	save_item(NAME(m_psrasy));
@@ -1674,8 +1671,7 @@ void avr8_base_device::device_reset()
 	}
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::device_reset()
+void avr8_device::device_reset()
 {
 	avr8_base_device::device_reset();
 
@@ -1690,7 +1686,7 @@ void avr8_device<NumTimers>::device_reset()
 	m_spi_prescale_count = 0;
 	m_spi_rx_shift = 0;
 
-	for (int t = 0; t < NumTimers; t++)
+	for (int t = 0; t < 6; t++)
 	{
 		m_timer_top[t] = 0;
 		m_timer_prescale[t] = 0xffff;
@@ -1707,7 +1703,7 @@ void avr8_device<NumTimers>::device_reset()
 
 void megaavr_classic_base_device::device_reset()
 {
-	avr8_device<3>::device_reset();
+	avr8_device::device_reset();
 
 	// assuming the prescalers will reset their sync flag for us
 	m_tsm = false;
@@ -1739,8 +1735,7 @@ void atmegaxu4_base_device::device_reset()
 //  device_add_mconfig - add device configuration
 //-------------------------------------------------
 
-template <int NumTimers>
-void avr8_device<NumTimers>::device_add_mconfig(machine_config &config)
+void avr8_device::device_add_mconfig(machine_config &config)
 {
 	avr8_base_device::device_add_mconfig(config);
 
@@ -1750,7 +1745,7 @@ void avr8_device<NumTimers>::device_add_mconfig(machine_config &config)
 
 void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
 {
-	avr8_device<3>::device_add_mconfig(config);
+	avr8_device::device_add_mconfig(config);
 
 	// Timer 0 basic implementation is the same across the classic megaAVR lineup,
 	// but signal routing differs. Each subclass device_add_mconfig() is responsible
@@ -2390,8 +2385,7 @@ bool atmega1284_device::pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group)
 //**************************************************************************
 
 // Master-mode SPI Mode 0 only (CPOL=0/CPHA=0)
-template <int NumTimers>
-void avr8_device<NumTimers>::spi_tick()
+void avr8_device::spi_tick()
 {
 	uint8_t mosi_mask, miso_mask, sck_mask;
 	spi_pins(mosi_mask, miso_mask, sck_mask);
@@ -2424,8 +2418,7 @@ void avr8_device<NumTimers>::spi_tick()
 
 // Timer 0 Handling
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer0_tick_norm()
+void avr8_device::timer0_tick_norm()
 {
 	if (m_r[TCNT0] == 0xff)
 	{
@@ -2439,16 +2432,14 @@ void avr8_device<NumTimers>::timer0_tick_norm()
 	m_timer_prescale_count[0] -= m_timer_prescale[0];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer0_tick_pwm_pc()
+void avr8_device::timer0_tick_pwm_pc()
 {
 	LOGMASKED(LOG_TIMER0, "%s: WGM02_PWM_PC: Unimplemented timer#0 waveform generation mode\n", machine().describe_context());
 	m_r[TCNT0]++;
 	m_timer_prescale_count[0] -= m_timer_prescale[0];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer0_tick_ctc_norm()
+void avr8_device::timer0_tick_ctc_norm()
 {
 	static const uint8_t s_ocf0[2] = { (1 << TIFR0_OCF0A_SHIFT), (1 << TIFR0_OCF0B_SHIFT) };
 	static const uint8_t s_int0[2] = { INTIDX_OCF0A, INTIDX_OCF0B };
@@ -2471,8 +2462,7 @@ void avr8_device<NumTimers>::timer0_tick_ctc_norm()
 	m_timer_prescale_count[0] -= m_timer_prescale[0];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer0_tick_ctc_toggle()
+void avr8_device::timer0_tick_ctc_toggle()
 {
 	if (m_r[TCNT0] == m_timer_top[0] - 1)
 	{
@@ -2485,8 +2475,7 @@ void avr8_device<NumTimers>::timer0_tick_ctc_toggle()
 	m_timer_prescale_count[0] -= m_timer_prescale[0];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer0_tick_ctc_clear()
+void avr8_device::timer0_tick_ctc_clear()
 {
 	if (m_r[TCNT0] == m_timer_top[0])
 	{
@@ -2499,8 +2488,7 @@ void avr8_device<NumTimers>::timer0_tick_ctc_clear()
 	m_timer_prescale_count[0] -= m_timer_prescale[0];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer0_tick_ctc_set()
+void avr8_device::timer0_tick_ctc_set()
 {
 	if (m_r[TCNT0] == m_timer_top[0])
 	{
@@ -2513,8 +2501,7 @@ void avr8_device<NumTimers>::timer0_tick_ctc_set()
 	m_timer_prescale_count[0] -= m_timer_prescale[0];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer0_tick_fast_pwm()
+void avr8_device::timer0_tick_fast_pwm()
 {
 	// FIXME: OC0x values are supposed to be latched when TCNT0 is zero.
 	if (m_r[TCNT0] == m_r[OCR0A] - 1)
@@ -2542,48 +2529,41 @@ void avr8_device<NumTimers>::timer0_tick_fast_pwm()
 	m_timer_prescale_count[0] -= m_timer_prescale[0];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer0_tick_pwm_pc_cmp()
+void avr8_device::timer0_tick_pwm_pc_cmp()
 {
 	LOGMASKED(LOG_TIMER0 | LOG_UNKNOWN, "%s: WGM02_PWM_PC_CMP: Unimplemented timer0 waveform generation mode\n", machine().describe_context());
 	m_r[TCNT0]++;
 	m_timer_prescale_count[0] -= m_timer_prescale[0];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer0_tick_fast_pwm_cmp()
+void avr8_device::timer0_tick_fast_pwm_cmp()
 {
 	LOGMASKED(LOG_TIMER0 | LOG_UNKNOWN, "%s: WGM02_FAST_PWM_CMP: Unimplemented timer0 waveform generation mode\n", machine().describe_context());
 	m_r[TCNT0]++;
 	m_timer_prescale_count[0] -= m_timer_prescale[0];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer0_tick_default()
+void avr8_device::timer0_tick_default()
 {
 	LOGMASKED(LOG_TIMER0 | LOG_UNKNOWN, "%s: timer0_tick_default: Unknown waveform generation mode: %02x\n", machine().describe_context(), WGM0);
 	m_r[TCNT0]++;
 	m_timer_prescale_count[0] -= m_timer_prescale[0];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer0_force_output_compare(int reg)
+void avr8_device::timer0_force_output_compare(int reg)
 {
 	LOGMASKED(LOG_TIMER0 | LOG_UNKNOWN, "%s: timer0_force_output_compare: TODO; should be forcing OC0%c\n", machine().describe_context(), 'A' + reg);
 	m_timer_prescale_count[0] -= m_timer_prescale[0];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::update_ocr0(uint8_t newval, uint8_t reg)
+void avr8_device::update_ocr0(uint8_t newval, uint8_t reg)
 {
 	m_r[(reg == AVR8_REG_A) ? OCR0A : OCR0B] = newval;
 }
 
 // Timer 1 Handling
-
-template <int NumTimers>
 template <int TimerMode, int ChannelModeA, int ChannelModeB>
-inline void avr8_device<NumTimers>::timer1_tick()
+inline void avr8_device::timer1_tick()
 {
 	static const uint8_t s_ocf1[2] = { (1 << TIFR1_OCF1A_SHIFT), (1 << TIFR1_OCF1B_SHIFT) };
 	static const uint8_t s_int1[2] = { INTIDX_OCF1A, INTIDX_OCF1B };
@@ -2909,8 +2889,7 @@ inline void avr8_device<NumTimers>::timer1_tick()
 	m_r[TCNT1L] = (uint8_t)timer1_count;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::update_timer_waveform_gen_mode(uint8_t t, uint8_t mode)
+void avr8_device::update_timer_waveform_gen_mode(uint8_t t, uint8_t mode)
 {
 	int32_t oc_val = -1, ic_val = -1;
 	switch (t)
@@ -2975,20 +2954,17 @@ void avr8_device<NumTimers>::update_timer_waveform_gen_mode(uint8_t t, uint8_t m
 	}
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::update_timer1_input_noise_canceler()
+void avr8_device::update_timer1_input_noise_canceler()
 {
 	LOGMASKED(LOG_TIMER1 | LOG_UNKNOWN, "%s: update_timer1_input_noise_canceler: TODO\n", machine().describe_context());
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::update_timer1_input_edge_select()
+void avr8_device::update_timer1_input_edge_select()
 {
 	LOGMASKED(LOG_TIMER1 | LOG_UNKNOWN, "%s: update_timer1_input_edge_select: TODO\n", machine().describe_context());
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::update_ocr1(uint16_t newval, uint8_t reg)
+void avr8_device::update_ocr1(uint16_t newval, uint8_t reg)
 {
 	static const int32_t s_high_indices[3] = { OCR1AH, OCR1BH, OCR1CH };
 	static const int32_t s_low_indices[3] =  { OCR1AL, OCR1BL, OCR1CL };
@@ -2999,16 +2975,14 @@ void avr8_device<NumTimers>::update_ocr1(uint16_t newval, uint8_t reg)
 
 // Timer 2 Handling
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer2_tick_default()
+void avr8_device::timer2_tick_default()
 {
 	LOGMASKED(LOG_TIMER2, "%s: WGM02_PWM_PC: Unimplemented timer#2 waveform generation mode %d\n", machine().describe_context(), WGM2);
 	m_r[TCNT2]++;
 	m_timer_prescale_count[2] -= m_timer_prescale[2];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer2_tick_norm()
+void avr8_device::timer2_tick_norm()
 {
 	LOGMASKED(LOG_TIMER2, "%s: timer2_tick_norm; WGM02_NORMAL\n", machine().describe_context());
 	if (m_r[TCNT2] == 0xff)
@@ -3023,8 +2997,7 @@ void avr8_device<NumTimers>::timer2_tick_norm()
 	m_timer_prescale_count[2] -= m_timer_prescale[2];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer2_tick_fast_pwm()
+void avr8_device::timer2_tick_fast_pwm()
 {
 	if (m_r[TCNT2] >= m_r[OCR2A])
 	{
@@ -3052,8 +3025,7 @@ void avr8_device<NumTimers>::timer2_tick_fast_pwm()
 	m_timer_prescale_count[2] -= m_timer_prescale[2];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer2_tick_fast_pwm_cmp()
+void avr8_device::timer2_tick_fast_pwm_cmp()
 {
 	const uint8_t ocf2[2] = { (1 << TIFR2_OCF2A_SHIFT), (1 << TIFR2_OCF2B_SHIFT) };
 	uint16_t count = m_r[TCNT2];
@@ -3085,14 +3057,12 @@ void avr8_device<NumTimers>::timer2_tick_fast_pwm_cmp()
 	m_timer_prescale_count[2] -= m_timer_prescale[2];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer2_force_output_compare(int reg)
+void avr8_device::timer2_force_output_compare(int reg)
 {
 	LOGMASKED(LOG_TIMER2 | LOG_UNKNOWN, "%s: force_output_compare: TODO; should be forcing OC2%c\n", machine().describe_context(), 'A' + reg);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::update_ocr2(uint8_t newval, uint8_t reg)
+void avr8_device::update_ocr2(uint8_t newval, uint8_t reg)
 {
 	m_r[(reg == AVR8_REG_A) ? OCR2A : OCR2B] = newval;
 
@@ -3102,15 +3072,13 @@ void avr8_device<NumTimers>::update_ocr2(uint8_t newval, uint8_t reg)
 /************************************************************************************************/
 
 // Timer 3 Handling
-template <int NumTimers>
-void avr8_device<NumTimers>::timer3_tick()
+void avr8_device::timer3_tick()
 {
 }
 
 /************************************************************************************************/
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timer4_tick()
+void avr8_device::timer4_tick()
 {
 	/* TODO: Handle comparison, setting OC1x pins, detection of BOTTOM and TOP */
 	LOGMASKED(LOG_TIMER4_TICK, "%s: WGM4: %d\n", machine().describe_context(), WGM4);
@@ -3191,9 +3159,8 @@ void avr8_device<NumTimers>::timer4_tick()
 	m_r[TCNT4L] = count & 0xff;
 }
 
-template <int NumTimers>
 template <int Timer>
-void avr8_device<NumTimers>::update_timer_clock_source(uint8_t clock_select, const uint8_t old_clock_select)
+void avr8_device::update_timer_clock_source(uint8_t clock_select, const uint8_t old_clock_select)
 {
 	static const int32_t s_prescale_values[2][8] =
 	{
@@ -3221,9 +3188,7 @@ void avr8_device<NumTimers>::update_timer_clock_source(uint8_t clock_select, con
 /************************************************************************************************/
 
 // Timer 5 Handling
-
-template <int NumTimers>
-void avr8_device<NumTimers>::timer5_tick()
+void avr8_device::timer5_tick()
 {
 	LOGMASKED(LOG_TIMER5_TICK, "%s: WGM5: %d\n", machine().describe_context(), WGM5);
 	LOGMASKED(LOG_TIMER5_TICK, "%s: TCCR5A_COM5B: %d\n", machine().describe_context(), TCCR5A_COM5B);
@@ -3309,8 +3274,7 @@ void avr8_device<NumTimers>::timer5_tick()
 /* ADC Handling */
 /****************/
 
-template <int NumTimers>
-void avr8_device<NumTimers>::adc_start_conversion()
+void avr8_device::adc_start_conversion()
 {
 	// set capture in progress flag
 	m_r[ADCSRA] |= ADCSRA_ADSC_MASK;
@@ -3343,8 +3307,7 @@ void avr8_device<NumTimers>::adc_start_conversion()
 	m_adc_timer->adjust(attotime::from_ticks((m_adc_first ? 25 : 13) * scale, clock()));
 }
 
-template <int NumTimers>
-TIMER_CALLBACK_MEMBER(avr8_device<NumTimers>::adc_conversion_complete)
+TIMER_CALLBACK_MEMBER(avr8_device::adc_conversion_complete)
 {
 	// set conversion result
 	m_adc_result = m_adc_sample;
@@ -3366,38 +3329,32 @@ TIMER_CALLBACK_MEMBER(avr8_device<NumTimers>::adc_conversion_complete)
 /* SPI Handling */
 /****************/
 
-template <int NumTimers>
-void avr8_device<NumTimers>::enable_spi()
+void avr8_device::enable_spi()
 {
 	// TODO
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::disable_spi()
+void avr8_device::disable_spi()
 {
 	m_spi_active = false;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::spi_update_masterslave_select()
+void avr8_device::spi_update_masterslave_select()
 {
 	// TODO
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::spi_update_clock_polarity()
+void avr8_device::spi_update_clock_polarity()
 {
 	// TODO
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::spi_update_clock_phase()
+void avr8_device::spi_update_clock_phase()
 {
 	// TODO
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::spi_update_clock_rate()
+void avr8_device::spi_update_clock_rate()
 {
 	static const uint8_t s_spi_clock_divisor[8] =
 	{
@@ -3407,8 +3364,7 @@ void avr8_device<NumTimers>::spi_update_clock_rate()
 	m_spi_prescale_count &= m_spi_prescale - 1;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::change_spcr(uint8_t data)
+void avr8_device::change_spcr(uint8_t data)
 {
 	uint8_t oldspcr = m_r[SPCR];
 	uint8_t newspcr = data;
@@ -3454,8 +3410,7 @@ void avr8_device<NumTimers>::change_spcr(uint8_t data)
 	}
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::change_spsr(uint8_t data)
+void avr8_device::change_spsr(uint8_t data)
 {
 	uint8_t oldspsr = m_r[SPSR];
 	uint8_t newspsr = data;
@@ -3499,9 +3454,8 @@ uint8_t megaavr_classic_base_device::gtccr_r()
 		   (m_psrsync << 0);
 }
 
-template <int NumTimers>
 template <int Port>
-uint8_t avr8_device<NumTimers>::gpio_r()
+uint8_t avr8_device::gpio_r()
 {
 	static constexpr uint16_t PORT_TO_REG[11] =
 	{
@@ -3522,9 +3476,8 @@ uint8_t avr8_device<NumTimers>::gpio_r()
 	return m_r[PORT_TO_REG[Port]];
 }
 
-template <int NumTimers>
 template <int Port>
-uint8_t avr8_device<NumTimers>::pin_r()
+uint8_t avr8_device::pin_r()
 {
 	static constexpr char PORT_CHARS[GPIO_COUNT] = { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L' };
 	// TODO: account for DDRH
@@ -3533,16 +3486,14 @@ uint8_t avr8_device<NumTimers>::pin_r()
 	return data;
 }
 
-template <int NumTimers>
 template <int Port>
-uint8_t avr8_device<NumTimers>::sample_port()
+uint8_t avr8_device::sample_port()
 {
 	return m_gpio_in_cb[Port].isunset() ? m_gpio_in[Port] : m_gpio_in_cb[Port]();
 }
 
-template <int NumTimers>
 template <int Port>
-void avr8_device<NumTimers>::port_w(uint8_t data)
+void avr8_device::port_w(uint8_t data)
 {
 	static constexpr char PORT_CHARS[GPIO_COUNT] = { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L' };
 	static constexpr uint16_t PORT_TO_REG[11] =
@@ -3568,9 +3519,8 @@ void avr8_device<NumTimers>::port_w(uint8_t data)
 	m_gpio_out_cb[Port](data | ~ddr);
 }
 
-template <int NumTimers>
 template <int Port>
-void avr8_device<NumTimers>::ddr_w(uint8_t data)
+void avr8_device::ddr_w(uint8_t data)
 {
 	static constexpr char PORT_CHARS[GPIO_COUNT] = { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L' };
 	static constexpr uint16_t PORT_TO_REG[11] =
@@ -3596,8 +3546,7 @@ void avr8_device<NumTimers>::ddr_w(uint8_t data)
 	m_gpio_out_cb[Port](port | ~data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr0a_w(uint8_t data)
+void avr8_device::tccr0a_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER0, "%s: TCCR0A = %02x\n", machine().describe_context(), data);
 	const uint8_t oldtccr = m_r[TCCR0A];
@@ -3613,8 +3562,7 @@ void avr8_device<NumTimers>::tccr0a_w(uint8_t data)
 	m_timer0_tick = m_timer0_ticks[(WGM0 << 2) | TCCR0A_COM0B];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr0b_w(uint8_t data)
+void avr8_device::tccr0b_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER0, "%s: TCCR0B = %02x\n", machine().describe_context(), data);
 	const uint8_t oldtccr = m_r[TCCR0B];
@@ -3649,22 +3597,19 @@ void avr8_device<NumTimers>::tccr0b_w(uint8_t data)
 	m_timer0_tick = m_timer0_ticks[(WGM0 << 2) | TCCR0A_COM0B];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr0a_w(uint8_t data)
+void avr8_device::ocr0a_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER0, "%s: OCR0A = %02x\n", machine().describe_context(), data);
 	update_ocr0(data, AVR8_REG_A);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr0b_w(uint8_t data)
+void avr8_device::ocr0b_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER0, "%s: OCR0B = %02x\n", machine().describe_context(), data);
 	update_ocr0(data, AVR8_REG_B);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tifr0_w(uint8_t data)
+void avr8_device::tifr0_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER0, "%s: TIFR0 = %02x\n", machine().describe_context(), data);
 	
@@ -3673,8 +3618,7 @@ void avr8_device<NumTimers>::tifr0_w(uint8_t data)
 	if (data & TIFR0_TOV0_MASK) clear_interrupt(INTIDX_TOV0);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tifr1_w(uint8_t data)
+void avr8_device::tifr1_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER1, "%s: TIFR1 = %02x\n", machine().describe_context(), data);
 
@@ -3684,8 +3628,7 @@ void avr8_device<NumTimers>::tifr1_w(uint8_t data)
 	if (data & TIFR1_TOV1_MASK) clear_interrupt(INTIDX_TOV1);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tifr2_w(uint8_t data)
+void avr8_device::tifr2_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER2, "%s: TIFR2 = %02x\n", machine().describe_context(), data);
 	
@@ -3694,8 +3637,7 @@ void avr8_device<NumTimers>::tifr2_w(uint8_t data)
 	if (m_r[TIFR2] & TIFR2_TOV2_MASK) clear_interrupt(INTIDX_TOV2);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::eecr_w(uint8_t data)
+void avr8_device::eecr_w(uint8_t data)
 {
 	m_r[EECR] = data & EECR_MASK;
 
@@ -3719,41 +3661,35 @@ void avr8_device<NumTimers>::eecr_w(uint8_t data)
 	}
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::gpior0_w(uint8_t data)
+void avr8_device::gpior0_w(uint8_t data)
 {
 	LOGMASKED(LOG_GPIO, "%s: GPIOR0 Write: %02x\n", machine().describe_context(), data);
 	m_r[GPIOR0] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::gpior1_w(uint8_t data)
+void avr8_device::gpior1_w(uint8_t data)
 {
 	LOGMASKED(LOG_GPIO, "%s: GPIOR1 Write: %02x\n", machine().describe_context(), data);
 	m_r[GPIOR1] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::gpior2_w(uint8_t data)
+void avr8_device::gpior2_w(uint8_t data)
 {
 	LOGMASKED(LOG_GPIO, "%s: GPIOR2 Write: %02x\n", machine().describe_context(), data);
 	m_r[GPIOR2] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::spsr_w(uint8_t data)
+void avr8_device::spsr_w(uint8_t data)
 {
 	change_spsr(data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::spcr_w(uint8_t data)
+void avr8_device::spcr_w(uint8_t data)
 {
 	change_spcr(data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::spdr_w(uint8_t data)
+void avr8_device::spdr_w(uint8_t data)
 {
 	m_r[SPDR] = data;
 	m_r[SPSR] &= ~SPSR_SPIF_MASK; // note: can't clear this flag by writing 1 there
@@ -3763,95 +3699,81 @@ void avr8_device<NumTimers>::spdr_w(uint8_t data)
 	m_spi_prescale_count = 0;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::wdtcsr_w(uint8_t data)
+void avr8_device::wdtcsr_w(uint8_t data)
 {
 	LOGMASKED(LOG_WDOG, "%s: (not yet implemented) WDTCSR = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::clkpr_w(uint8_t data)
+void avr8_device::clkpr_w(uint8_t data)
 {
 	LOGMASKED(LOG_CLOCK, "%s: (not yet implemented) CLKPR = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::prr0_w(uint8_t data)
+void avr8_device::prr0_w(uint8_t data)
 {
 	LOGMASKED(LOG_POWER, "%s: (not yet implemented) PRR0 = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::prr1_w(uint8_t data)
+void avr8_device::prr1_w(uint8_t data)
 {
 	LOGMASKED(LOG_POWER, "%s: (not yet implemented) PRR1 = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::osccal_w(uint8_t data)
+void avr8_device::osccal_w(uint8_t data)
 {
 	LOGMASKED(LOG_POWER, "%s: (not yet implemented) OSCCAL = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::pcicr_w(uint8_t data)
+void avr8_device::pcicr_w(uint8_t data)
 {
 	LOGMASKED(LOG_PINCHG, "%s: PCICR = %02x\n", machine().describe_context(), data);
 	m_r[PCICR] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::pcifr_w(uint8_t data)
+void avr8_device::pcifr_w(uint8_t data)
 {
 	// PCIFR is write-one-to-clear: writing a 1 to a PCIFn bit clears it, it does not request an interrupt
 	LOGMASKED(LOG_PINCHG, "%s: PCIFR = %02x\n", machine().describe_context(), data);
 	m_r[PCIFR] &= ~(data & (PCIFR_PCIF0_MASK | PCIFR_PCIF1_MASK | PCIFR_PCIF2_MASK));
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::eicra_w(uint8_t data)
+void avr8_device::eicra_w(uint8_t data)
 {
 	LOGMASKED(LOG_PINCHG, "%s: EICRA = %02x\n", machine().describe_context(), data);
 	m_r[EICRA] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::eifr_w(uint8_t data)
+void avr8_device::eifr_w(uint8_t data)
 {
 	// EIFR is write-one-to-clear: writing a 1 to an INTFn bit clears it, it does not request an interrupt
 	LOGMASKED(LOG_PINCHG, "%s: EIFR = %02x\n", machine().describe_context(), data);
 	m_r[EIFR] &= ~(data & (EIFR_INTF0_MASK | EIFR_INTF1_MASK));
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::eicrb_w(uint8_t data)
+void avr8_device::eicrb_w(uint8_t data)
 {
 	LOGMASKED(LOG_POWER, "%s: (not yet implemented) EICRB = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::pcmsk0_w(uint8_t data)
+void avr8_device::pcmsk0_w(uint8_t data)
 {
 	LOGMASKED(LOG_PINCHG, "%s: PCMSK0 = %02x\n", machine().describe_context(), data);
 	m_r[PCMSK0] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::pcmsk1_w(uint8_t data)
+void avr8_device::pcmsk1_w(uint8_t data)
 {
 	LOGMASKED(LOG_PINCHG, "%s: PCMSK1 = %02x\n", machine().describe_context(), data);
 	m_r[PCMSK1] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::pcmsk2_w(uint8_t data)
+void avr8_device::pcmsk2_w(uint8_t data)
 {
 	LOGMASKED(LOG_PINCHG, "%s: PCMSK2 = %02x\n", machine().describe_context(), data);
 	m_r[PCMSK2] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::check_extint(int line, uint8_t prev, uint8_t state)
+void avr8_device::check_extint(int line, uint8_t prev, uint8_t state)
 {
 	const int bit = 2 + line; // INT0 = PD2, INT1 = PD3
 	if (!(m_r[EIMSK] & (1 << line)))
@@ -3874,9 +3796,8 @@ void avr8_device<NumTimers>::check_extint(int line, uint8_t prev, uint8_t state)
 	}
 }
 
-template <int NumTimers>
 template <int Port>
-void avr8_device<NumTimers>::latch_pin_change(uint8_t state)
+void avr8_device::latch_pin_change(uint8_t state)
 {
 	const uint8_t prev = m_pcint_last[Port];
 	const uint8_t changed = state ^ prev;
@@ -3906,9 +3827,8 @@ void avr8_device<NumTimers>::latch_pin_change(uint8_t state)
 	}
 }
 
-template<int NumTimers>
 template<int Port, int Bit>
-void avr8_device<NumTimers>::set_gpio_bit(uint8_t data)
+void avr8_device::set_gpio_bit(uint8_t data)
 {
 	// static constexpr char PORT_CHARS[GPIO_COUNT] = { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L' };
 	static constexpr uint16_t PORT_TO_REG[11] =
@@ -3936,9 +3856,8 @@ void avr8_device<NumTimers>::set_gpio_bit(uint8_t data)
 	m_gpio_out_cb[Port](m_r[reg]);
 }
 
-template<int NumTimers>
 template<int Port, int Bit>
-void avr8_device<NumTimers>::toggle_gpio_bit(uint8_t _)
+void avr8_device::toggle_gpio_bit(uint8_t _)
 {
 	// static constexpr char PORT_CHARS[GPIO_COUNT] = { 'A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'J', 'K', 'L' };
 	static constexpr uint16_t PORT_TO_REG[11] =
@@ -3962,9 +3881,8 @@ void avr8_device<NumTimers>::toggle_gpio_bit(uint8_t _)
 	m_gpio_out_cb[Port](m_r[reg]);
 }
 
-template <int NumTimers>
 template <int Port>
-void avr8_device<NumTimers>::pin_w(int bit, int state)
+void avr8_device::pin_w(int bit, int state)
 {
 	if (state)
 		m_gpio_in[Port] |= (1 << bit);
@@ -3974,8 +3892,7 @@ void avr8_device<NumTimers>::pin_w(int bit, int state)
 	latch_pin_change<Port>(sample_port<Port>());
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timsk0_w(uint8_t data)
+void avr8_device::timsk0_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER0, "%s: TIMSK0 = %02x\n", machine().describe_context(), data);
 	m_r[TIMSK0] = data;
@@ -3985,8 +3902,7 @@ void avr8_device<NumTimers>::timsk0_w(uint8_t data)
 	update_interrupt(INTIDX_TOV0);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timsk1_w(uint8_t data)
+void avr8_device::timsk1_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER1, "%s: TIMSK1 = %02x\n", machine().describe_context(), data);
 	m_r[TIMSK1] = data;
@@ -3996,8 +3912,7 @@ void avr8_device<NumTimers>::timsk1_w(uint8_t data)
 	update_interrupt(INTIDX_TOV1);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timsk2_w(uint8_t data)
+void avr8_device::timsk2_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER2, "%s: TIMSK2 = %02x\n", machine().describe_context(), data);
 	m_r[TIMSK2] = data;
@@ -4007,8 +3922,7 @@ void avr8_device<NumTimers>::timsk2_w(uint8_t data)
 	update_interrupt(INTIDX_TOV2);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timsk3_w(uint8_t data)
+void avr8_device::timsk3_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER3, "%s: TIMSK3 = %02x\n", machine().describe_context(), data);
 	m_r[TIMSK3] = data;
@@ -4020,8 +3934,7 @@ void avr8_device<NumTimers>::timsk3_w(uint8_t data)
 	// update_interrupt(INTIDX_TOV3);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timsk4_w(uint8_t data)
+void avr8_device::timsk4_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER4, "%s: TIMSK4 = %02x\n", machine().describe_context(), data);
 	m_r[TIMSK4] = data;
@@ -4033,8 +3946,7 @@ void avr8_device<NumTimers>::timsk4_w(uint8_t data)
 	// update_interrupt(INTIDX_TOV4);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::timsk5_w(uint8_t data)
+void avr8_device::timsk5_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER5, "%s: TIMSK5 = %02x\n", machine().describe_context(), data);
 	m_r[TIMSK5] = data;
@@ -4046,20 +3958,17 @@ void avr8_device<NumTimers>::timsk5_w(uint8_t data)
 	// update_interrupt(INTIDX_TOV5);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::xmcra_w(uint8_t data)
+void avr8_device::xmcra_w(uint8_t data)
 {
 	LOGMASKED(LOG_EXTMEM, "%s: (not yet implemented) XMCRA = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::xmcrb_w(uint8_t data)
+void avr8_device::xmcrb_w(uint8_t data)
 {
 	LOGMASKED(LOG_EXTMEM, "%s: (not yet implemented) XMCRB = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-uint8_t avr8_device<NumTimers>::adcl_r()
+uint8_t avr8_device::adcl_r()
 {
 	if (!machine().side_effects_disabled())
 		m_adc_hold = true;
@@ -4069,14 +3978,12 @@ uint8_t avr8_device<NumTimers>::adcl_r()
 		return uint8_t(m_adc_data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::adcl_w(uint8_t data)
+void avr8_device::adcl_w(uint8_t data)
 {
 	LOGMASKED(LOG_ADC, "%s: ADCL = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-uint8_t avr8_device<NumTimers>::adch_r()
+uint8_t avr8_device::adch_r()
 {
 	uint8_t const result = ADMUX_ADLAR ? BIT(m_adc_data, 2, 8) : BIT(m_adc_data, 8, 2);
 	if (!machine().side_effects_disabled())
@@ -4087,14 +3994,12 @@ uint8_t avr8_device<NumTimers>::adch_r()
 	return result;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::adch_w(uint8_t data)
+void avr8_device::adch_w(uint8_t data)
 {
 	LOGMASKED(LOG_ADC, "%s: ADCH = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::adcsra_w(uint8_t data)
+void avr8_device::adcsra_w(uint8_t data)
 {
 	LOGMASKED(LOG_ADC, "%s: ADCSRA = %02x\n", machine().describe_context(), data);
 
@@ -4131,8 +4036,7 @@ void avr8_device<NumTimers>::adcsra_w(uint8_t data)
 		logerror("%s: Unimplemented ADC interrupt enabled\n");
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::adcsrb_w(uint8_t data)
+void avr8_device::adcsrb_w(uint8_t data)
 {
 	LOGMASKED(LOG_ADC, "%s: ADCSRB = %02x\n", machine().describe_context(), data);
 	m_r[ADCSRB] = data & (ADCSRB_ACME_MASK | ADCSRB_ADTS_MASK);
@@ -4140,33 +4044,28 @@ void avr8_device<NumTimers>::adcsrb_w(uint8_t data)
 		logerror("%s: Unimplemented ADC auto trigger source %X selected\n", machine().describe_context(), ADCSRB_ADTS);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::admux_w(uint8_t data)
+void avr8_device::admux_w(uint8_t data)
 {
 	LOGMASKED(LOG_ADC, "%s: ADMUX = %02x\n", machine().describe_context(), data);
 	m_r[ADMUX] = data & (ADMUX_REFS_MASK | ADMUX_ADLAR_MASK | ADMUX_MUX_MASK);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::didr0_w(uint8_t data)
+void avr8_device::didr0_w(uint8_t data)
 {
 	LOGMASKED(LOG_DIGINPUT, "%s: (not yet implemented) DIDR0 = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::didr1_w(uint8_t data)
+void avr8_device::didr1_w(uint8_t data)
 {
 	LOGMASKED(LOG_DIGINPUT, "%s: (not yet implemented) DIDR1 = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::didr2_w(uint8_t data)
+void avr8_device::didr2_w(uint8_t data)
 {
 	LOGMASKED(LOG_DIGINPUT, "%s: (not yet implemented) DIDR2 = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr1a_w(uint8_t data)
+void avr8_device::tccr1a_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER1, "%s: TCCR1A = %02x\n", machine().describe_context(), data);
 	const uint8_t oldtccr = m_r[TCCR1A];
@@ -4182,8 +4081,7 @@ void avr8_device<NumTimers>::tccr1a_w(uint8_t data)
 	m_timer1_tick = m_timer1_ticks[(WGM1 << 4) | ((m_r[TCCR1A] & TCCR1A_COM1AB_MASK) >> TCCR1A_COM1AB_SHIFT)];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr1b_w(uint8_t data)
+void avr8_device::tccr1b_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER1, "%s: TCCR1B = %02x\n", machine().describe_context(), data);
 	const uint8_t oldtccr = m_r[TCCR1B];
@@ -4216,68 +4114,58 @@ void avr8_device<NumTimers>::tccr1b_w(uint8_t data)
 	m_timer1_tick = m_timer1_ticks[(WGM1 << 4) | ((m_r[TCCR1A] & TCCR1A_COM1AB_MASK) >> TCCR1A_COM1AB_SHIFT)];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr1c_w(uint8_t data)
+void avr8_device::tccr1c_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER1, "%s: (not yet implemented) TCCR1C = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::icr1l_w(uint8_t data)
+void avr8_device::icr1l_w(uint8_t data)
 {
 	m_r[ICR1L] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::icr1h_w(uint8_t data)
+void avr8_device::icr1h_w(uint8_t data)
 {
 	m_r[ICR1H] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr1al_w(uint8_t data)
+void avr8_device::ocr1al_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER1, "%s: OCR1AL = %02x\n", machine().describe_context(), data);
 	update_ocr1((OCR1A & 0xff00) | data, AVR8_REG_A);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr1ah_w(uint8_t data)
+void avr8_device::ocr1ah_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER1, "%s: OCR1AH = %02x\n", machine().describe_context(), data);
 	update_ocr1((OCR1A & 0x00ff) | (data << 8), AVR8_REG_A);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr1bl_w(uint8_t data)
+void avr8_device::ocr1bl_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER1, "%s: OCR1BL = %02x\n", machine().describe_context(), data);
 	update_ocr1((OCR1B & 0xff00) | data, AVR8_REG_B);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr1bh_w(uint8_t data)
+void avr8_device::ocr1bh_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER1, "%s: OCR1BH = %02x\n", machine().describe_context(), data);
 	update_ocr1((OCR1B & 0x00ff) | (data << 8), AVR8_REG_B);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr1cl_w(uint8_t data)
+void avr8_device::ocr1cl_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER1, "%s: OCR1CL = %02x\n", machine().describe_context(), data);
 	update_ocr1((OCR1C & 0xff00) | data, AVR8_REG_C);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr1ch_w(uint8_t data)
+void avr8_device::ocr1ch_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER1, "%s: OCR1CH = %02x\n", machine().describe_context(), data);
 	update_ocr1((OCR1C & 0x00ff) | (data << 8), AVR8_REG_C);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr2a_w(uint8_t data)
+void avr8_device::tccr2a_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER2, "%s: TCCR2A = %02x\n", machine().describe_context(), data);
 	const uint8_t oldtccr = m_r[TCCR2A];
@@ -4294,8 +4182,7 @@ void avr8_device<NumTimers>::tccr2a_w(uint8_t data)
 	m_timer2_tick = m_timer2_ticks[((m_r[TCCR2B] & TCCR2B_WGM2_2_MASK) >> 1) | (m_r[TCCR2A] & TCCR2A_WGM2_10_MASK)];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr2b_w(uint8_t data)
+void avr8_device::tccr2b_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER2, "%s: TCCR2B = %02x\n", machine().describe_context(), data);
 	const uint8_t oldtccr = m_r[TCCR2B];
@@ -4328,94 +4215,79 @@ void avr8_device<NumTimers>::tccr2b_w(uint8_t data)
 	m_timer2_tick = m_timer2_ticks[((m_r[TCCR2B] & TCCR2B_WGM2_2_MASK) >> 1) | (m_r[TCCR2A] & TCCR2A_WGM2_10_MASK)];
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tcnt2_w(uint8_t data)
+void avr8_device::tcnt2_w(uint8_t data)
 {
 	m_r[TCNT2] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr2a_w(uint8_t data)
+void avr8_device::ocr2a_w(uint8_t data)
 {
 	update_ocr2(data, AVR8_REG_A);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr2b_w(uint8_t data)
+void avr8_device::ocr2b_w(uint8_t data)
 {
 	update_ocr2(data, AVR8_REG_B);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr3a_w(uint8_t data)
+void avr8_device::tccr3a_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER3, "%s: (not yet implemented) TCCR3A = %02x\n", machine().describe_context(), data);
 	// TODO
 	//  AVR8_TCCR3A = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr3b_w(uint8_t data)
+void avr8_device::tccr3b_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER3, "%s: (not yet implemented) TCCR3B = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr3c_w(uint8_t data)
+void avr8_device::tccr3c_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER3, "%s: (not yet implemented) TCCR3C = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::icr3l_w(uint8_t data)
+void avr8_device::icr3l_w(uint8_t data)
 {
 	m_r[ICR3L] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::icr3h_w(uint8_t data)
+void avr8_device::icr3h_w(uint8_t data)
 {
 	m_r[ICR3H] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr3al_w(uint8_t data)
+void avr8_device::ocr3al_w(uint8_t data)
 {
 	m_r[OCR3AL] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr3ah_w(uint8_t data)
+void avr8_device::ocr3ah_w(uint8_t data)
 {
 	m_r[OCR3AH] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr3bl_w(uint8_t data)
+void avr8_device::ocr3bl_w(uint8_t data)
 {
 	m_r[OCR3BL] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr3bh_w(uint8_t data)
+void avr8_device::ocr3bh_w(uint8_t data)
 {
 	m_r[OCR3BH] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr3cl_w(uint8_t data)
+void avr8_device::ocr3cl_w(uint8_t data)
 {
 	m_r[OCR3CL] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr3ch_w(uint8_t data)
+void avr8_device::ocr3ch_w(uint8_t data)
 {
 	m_r[OCR3CH] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr4a_w(uint8_t data)
+void avr8_device::tccr4a_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER4, "%s: TCCR4A = %02x\n", machine().describe_context(), data);
 	const uint8_t oldtccr = m_r[TCCR4A];
@@ -4430,8 +4302,7 @@ void avr8_device<NumTimers>::tccr4a_w(uint8_t data)
 	}
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr4b_w(uint8_t data)
+void avr8_device::tccr4b_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER4, "%s: TCCR4B = %02x\n", machine().describe_context(), data);
 	const uint8_t oldtccr = m_r[TCCR4B];
@@ -4464,8 +4335,7 @@ void avr8_device<NumTimers>::tccr4b_w(uint8_t data)
 	}
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr4c_w(uint8_t data)
+void avr8_device::tccr4c_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER4, "%s: TCCR4C = %02x\n", machine().describe_context(), data);
 	//  uint8_t oldtccr = m_r[TCCR4C];
@@ -4475,68 +4345,57 @@ void avr8_device<NumTimers>::tccr4c_w(uint8_t data)
 	m_r[TCCR4C] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tcnt4l_w(uint8_t data)
+void avr8_device::tcnt4l_w(uint8_t data)
 {
 	m_r[TCNT4L] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tcnt4h_w(uint8_t data)
+void avr8_device::tcnt4h_w(uint8_t data)
 {
 	m_r[TCNT4H] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::icr4l_w(uint8_t data)
+void avr8_device::icr4l_w(uint8_t data)
 {
 	m_r[ICR4L] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::icr4h_w(uint8_t data)
+void avr8_device::icr4h_w(uint8_t data)
 {
 	m_r[ICR4H] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr4al_w(uint8_t data)
+void avr8_device::ocr4al_w(uint8_t data)
 {
 	m_r[OCR4AL] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr4ah_w(uint8_t data)
+void avr8_device::ocr4ah_w(uint8_t data)
 {
 	m_r[OCR4AH] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr4bl_w(uint8_t data)
+void avr8_device::ocr4bl_w(uint8_t data)
 {
 	m_r[OCR4BL] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr4bh_w(uint8_t data)
+void avr8_device::ocr4bh_w(uint8_t data)
 {
 	m_r[OCR4BH] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr4cl_w(uint8_t data)
+void avr8_device::ocr4cl_w(uint8_t data)
 {
 	m_r[OCR4CL] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ocr4ch_w(uint8_t data)
+void avr8_device::ocr4ch_w(uint8_t data)
 {
 	m_r[OCR4CH] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr5a_w(uint8_t data)
+void avr8_device::tccr5a_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER5, "%s: TCCR5A = %02x\n", machine().describe_context(), data);
 	const uint8_t oldtccr = m_r[TCCR5A];
@@ -4551,8 +4410,7 @@ void avr8_device<NumTimers>::tccr5a_w(uint8_t data)
 	}
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::tccr5b_w(uint8_t data)
+void avr8_device::tccr5b_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER5, "%s: TCCR5B = %02x\n", machine().describe_context(), data);
 	const uint8_t oldtccr = m_r[TCCR5B];
@@ -4591,20 +4449,17 @@ void avr8_device<NumTimers>::tccr5b_w(uint8_t data)
 	}
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::assr_w(uint8_t data)
+void avr8_device::assr_w(uint8_t data)
 {
 	LOGMASKED(LOG_ASYNC, "%s: (not yet implemented) ASSR = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::twbr_w(uint8_t data)
+void avr8_device::twbr_w(uint8_t data)
 {
 	LOGMASKED(LOG_TWI, "%s: (not yet implemented) TWBR = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-uint8_t avr8_device<NumTimers>::twsr_r()
+uint8_t avr8_device::twsr_r()
 {
 	LOGMASKED(LOG_TWI, "%s: (not yet implemented) Read TWSR: %02x\n", machine().describe_context(), 0);
 	// HACK for Replicator 1:
@@ -4613,51 +4468,43 @@ uint8_t avr8_device<NumTimers>::twsr_r()
 	return 0x00;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::twsr_w(uint8_t data)
+void avr8_device::twsr_w(uint8_t data)
 {
 	LOGMASKED(LOG_TWI, "%s: (not yet implemented) TWSR = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::twar_w(uint8_t data)
+void avr8_device::twar_w(uint8_t data)
 {
 	LOGMASKED(LOG_TWI, "%s: (not yet implemented) TWAR = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::twdr_w(uint8_t data)
+void avr8_device::twdr_w(uint8_t data)
 {
 	LOGMASKED(LOG_TWI, "%s: (not yet implemented) TWDR = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::twcr_w(uint8_t data)
+void avr8_device::twcr_w(uint8_t data)
 {
 	LOGMASKED(LOG_TWI, "%s: (not yet implemented) TWCR = %02x\n", machine().describe_context(), data);
 	m_r[TWCR] = data;
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::twamr_w(uint8_t data)
+void avr8_device::twamr_w(uint8_t data)
 {
 	LOGMASKED(LOG_TWI, "%s: (not yet implemented) TWAMR = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ucsr0a_w(uint8_t data)
+void avr8_device::ucsr0a_w(uint8_t data)
 {
 	LOGMASKED(LOG_UART, "%s: (not yet implemented) UCSR0A = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ucsr0b_w(uint8_t data)
+void avr8_device::ucsr0b_w(uint8_t data)
 {
 	LOGMASKED(LOG_UART, "%s: (not yet implemented) UCSR0B = %02x\n", machine().describe_context(), data);
 }
 
-template <int NumTimers>
-void avr8_device<NumTimers>::ucsr0c_w(uint8_t data)
+void avr8_device::ucsr0c_w(uint8_t data)
 {
 	LOGMASKED(LOG_UART, "%s: (not yet implemented) UCSR0C = %02x\n", machine().describe_context(), data);
 }
@@ -4674,8 +4521,7 @@ void avr8_device<NumTimers>::ucsr0c_w(uint8_t data)
 //  opcodes
 //-------------------------------------------------
 
-template <int NumTimers>
-void avr8_device<NumTimers>::execute_run()
+void avr8_device::execute_run()
 {
 	// TODO: turn this back into a required_device
 	auto syncprescale = subdevice<avr8_10bit_prescaler_device>("syncprescale");
@@ -4760,30 +4606,6 @@ void avr8_device<NumTimers>::execute_run()
 			if (m_timer_prescale_count[2] > m_timer_prescale[2])
 				m_timer2_tick();
 
-			if (NumTimers > 5)
-			{
-				m_timer_prescale_count[3]++;
-				if (m_timer_prescale_count[3] > m_timer_prescale[3])
-				{
-					timer3_tick();
-					m_timer_prescale_count[3] -= m_timer_prescale[3];
-				}
-
-				m_timer_prescale_count[4]++;
-				if (m_timer_prescale_count[4] > m_timer_prescale[4])
-				{
-					timer4_tick();
-					m_timer_prescale_count[4] -= m_timer_prescale[4];
-				}
-
-				m_timer_prescale_count[5]++;
-				if (m_timer_prescale_count[5] > m_timer_prescale[5])
-				{
-					timer5_tick();
-					m_timer_prescale_count[5] -= m_timer_prescale[5];
-				}
-			}
-
 			if (!m_sei_delay_pending)
 			{
 				fire_interrupts();
@@ -4792,15 +4614,11 @@ void avr8_device<NumTimers>::execute_run()
 	}
 }
 
-template class avr8_device<2>;
-template class avr8_device<3>;
-template class avr8_device<6>;
-
 // explicit instantiations so external devices can call pin_w<Port>() to report input pin changes
-template void avr8_device<3>::pin_w<avr8_base_device::GPIOA>(int, int);
-template void avr8_device<3>::pin_w<avr8_base_device::GPIOB>(int, int);
-template void avr8_device<3>::pin_w<avr8_base_device::GPIOC>(int, int);
-template void avr8_device<3>::pin_w<avr8_base_device::GPIOD>(int, int);
-template void avr8_device<3>::pin_w<avr8_base_device::GPIOE>(int, int);
-template void avr8_device<3>::pin_w<avr8_base_device::GPIOF>(int, int);
-template void avr8_device<3>::pin_w<avr8_base_device::GPIOG>(int, int);
+template void avr8_device::pin_w<avr8_base_device::GPIOA>(int, int);
+template void avr8_device::pin_w<avr8_base_device::GPIOB>(int, int);
+template void avr8_device::pin_w<avr8_base_device::GPIOC>(int, int);
+template void avr8_device::pin_w<avr8_base_device::GPIOD>(int, int);
+template void avr8_device::pin_w<avr8_base_device::GPIOE>(int, int);
+template void avr8_device::pin_w<avr8_base_device::GPIOF>(int, int);
+template void avr8_device::pin_w<avr8_base_device::GPIOG>(int, int);
