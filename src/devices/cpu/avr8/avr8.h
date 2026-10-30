@@ -1586,7 +1586,7 @@ protected:
 	virtual void device_reset() override ATTR_COLD;
 	virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
 
-	// TODO: add timers 1, 3, 4, 5
+	void atmegax0_base_internal_map(address_map &map) ATTR_COLD;
 };
 
 

@@ -28,14 +28,14 @@
     -----------------------------------------------------------------
 
     Typically, the classic AVR8s have the following kinds of timers: 8-bit low-precision,
-    16-bit high precision, and/or 10-bit high speed.
+    16-bit high precision, and/or a high-speed timer subsystem.
 
     | Series       | Timer 0 | Timer 1 | Timer 2 | Timer 3 | Timer 4 | Timer 5 |
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATMega 8, 16,| Generic | Generic | 8-bit   |  n/a    |  n/a    |  n/a    | * different register scheme
-    | 32           | timer 0 | timer 1 | fakeRTC |         |         |         |   than the other megaAVRs!
+    | ATMega 8, 16,| Generic | Generic | 8-bit   |  n/a    |  n/a    |  n/a    | <-- different register scheme
+    | 32           | timer 0 | timer 1 | fakeRTC |         |         |         |     than the other megaAVRs!
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATMega       | Generic | Generic | 8-bit   |  n/a    |  n/a    |  n/a    | 
+    | ATMega       | Generic | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |
     | 88, 168, 328 | timer 0 | timer 1 | fakeRTC |         |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
     | ATMega       | Generic | Generic |  n/a    | 16-bit  | 10-bit  |  n/a    |
@@ -50,28 +50,31 @@
     | ATMega 1284, | Generic | Generic | 8-bit   | Generic |  n/a    |  n/a    | 
     | 2564         | timer 0 | timer 1 | fakeRTC | timer 1 |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATTiny 15    | Generic |  n/a    |  n/a    |  n/a    |  n/a    |  n/a    |
-    |              | timer 0 |         |         |         |         |         |
+    | ATTiny 15    | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |  n/a    |
+    |              | timer 0 | hispeed |         |         |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
     | ATTiny 25,   | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |  n/a    |
     | 45, 85       | timer 0 | hispeed |         |         |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
 
-    Types used:
-    - "Generic timer 0" is a common 8-bit timer across the classic AVR8s,
-      slotted into the Timer 0 position.
-
-    - "Generic timer 1" is a high-precision 16-bit timer with two or three
-      comparator output channels and one comparator input channel.
+    The most common timer types are implementations of a generic 8-bit and 16-bit design.
     
-    - The "fake RTC" asynchronous timer is another 8-bit timer. In synchronous
-      mode its prescaler will be clocked by the I/O clock, but it can also be
-      switched to an external clock source, which is usually a 32.768 kHz crystal
-      for timekeeping. It still requires software intervention to update and
-      has no battery backing, so we can consider it to not be a "real" RTC.
+    The generic 8-bit timer is always slotted into the Timer 0 role, and often there is an
+    asynchronous timer used for faking an RTC that has different clock selection modes,
+    but counts the same.
 
-    - The high-speed timers can be clocked by an on-chip PLL at many dozens
-      of megahertz.
+    The generic 16-bit timer is usually in the Timer 1 slot. On most devices it will have
+    two compare channels, but some implementations give it three compare channels.
+    
+    Not included in this file are the high-speed timers, which have many underlying
+    differences from the generic 8/16-bit timers and need their own timing subsystems:
+
+    - The ATMegaxU4 devices have a 10-bit high-speed timer that can be driven either from
+      clk_io or a high-speed PLL.
+
+    - The ATTiny15 has its own high-speed timer implementation, this time with an 8-bit
+      timer. The ATTiny25/45/85 inherits this timer, but it adds more features on top of
+      having a ATTiny15 backwards compatibility mode.
 
     16-bit register accesses:
     -----------------------------------------------------------------
