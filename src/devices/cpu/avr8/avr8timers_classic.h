@@ -35,7 +35,7 @@ public:
 
     // NOTE: this condition is only true on the clock cycle the division is satisfied.
     template <int Modulo>
-    uint8_t clkdiv_r() { return !m_sync && (m_count % Modulo) == 0; }
+    inline uint8_t clkdiv_r() { return !m_sync && (m_count % Modulo) == 0; }
 
     // device-level overrides
 	virtual void device_start() override ATTR_COLD;
@@ -344,7 +344,7 @@ protected:
     void clear_ocf_b(); // clear OCFxB flag and de-assert CPU interrupt
     void clear_ocf_c(); // clear OCFxC flag and de-assert CPU interrupt
 
-    virtual bool is_async_mode() { return false; } // default assumes synchronous timer, so always returns false
+    virtual bool is_async_mode() const { return false; } // default assumes synchronous timer, so always returns false
 
     // WGM callbacks install
     virtual void install_wgm_callbacks() = 0;
@@ -519,6 +519,91 @@ public:
 //////////////////////////////////////////////////////////////////////////////////////////
 // TIMER IMPLEMENTATIONS
 //////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Abstract base 8-bit timer implementation where the WGM modes match
+ * those in the common Timer 0 and the asynchronous Timer 2.
+ */
+class avr8_generic_8bit_timer_device : public avr8_base_timer_device
+{
+    enum : uint8_t
+    {
+        /**
+         * Normal mode (WGM 0b000): Counts from 0 to 255. TOV0 is set upon
+         * wrap from 255 to 0.
+         * 
+         * Normal mode uses the same COMxx behavior as CTC mode.
+         */
+        GENERIC_8BIT_TIMER_WGM_NORMAL        = 0b000,
+
+        /**
+         * Phase Correct PWM Mode (WGM 0b001): Count from 0x00 to 0xff, then count
+         * down from 0xff to 0x00.
+         */
+        GENERIC_8BIT_TIMER_PWM               = 0b001,
+
+        /**
+         * CTC (Clear Timer on Compare) mode (WGM 0b010): Similar to normal mode, but it counts from 0
+         * to the value set in OCR0A or OCR0B, whichever is reached first. COMxx settings will be obeyed
+         * here, and will toggle the OCxA and OCxB pins on compare.
+         */
+        GENERIC_8BIT_TIMER_WGM_CTC           = 0b010,
+
+        /**
+         * Fast PWM mode (WGM = 0b011): Counts and signals interrupts the same
+         * way as normal mode, but also outputs to the OC0A and OC0B pins on compare.
+         */
+        GENERIC_8BIT_TIMER_WGM_FAST_PWM      = 0b011,
+
+        // 0b100 invalid/reserved
+
+        /**
+         * Phase Correct PWM Mode, counting to OCRxA (WGM 0b101)
+         */
+        GENERIC_8BIT_TIMER_WGM_PWM_OCR_A     = 0b101,
+
+        // 0b110 invalid/reserved
+
+        /**
+         * Fast PWM mode, counting to OCRxA (WGM = 0b111).
+         */
+        GENERIC_8BIT_TIMER_WGM_FAST_PWM_OCR_A = 0b111,
+    };
+
+protected:
+    avr8_generic_8bit_timer_device(const machine_config &mconfig,
+                                 const char *tag,
+                                 device_t *owner,
+                                 uint32_t clock,
+                                 const device_type device_type);
+
+    virtual void install_wgm_callbacks() override;
+
+    void advance_ctc();
+    void advance_pwm();
+    void advance_pwm_ocr_a();
+    void advance_fast_pwm();
+    void advance_fast_pwm_ocr_a();     
+
+    void update_oc0a_fast_pwm_on_compare();
+    void update_oc0a_fast_pwm_on_top();
+    void update_oc0b_fast_pwm_on_compare();
+    void update_oc0b_fast_pwm_on_top();
+
+    void update_oc0a_pwm_on_upcount_compare();
+    void update_oc0a_pwm_on_downcount_compare();
+    void update_oc0b_pwm_on_upcount_compare();
+    void update_oc0b_pwm_on_downcount_compare();
+
+
+    void force_oc0a(); // force OC0A output as if comparison happened; does not set interrupt flag
+    void force_oc0b(); // force OC0B output as if comparison happened; does not set interrupt flag
+
+    virtual uint32_t get_num_bits() const override { return 8; }
+
+    virtual void advance_normal() override;
+    
+};
 
 class avr8_generic_t0_timer_device : public avr8_base_timer_device
 {
@@ -777,11 +862,20 @@ protected:
     void update_oc_c_pwm_on_upcount_compare();
 };
 
-
-#if 0
-
-class avr8_generic_fakertc_timer_device : public avr8_base_timer_device
+/**
+ * Common "Fake RTC" timer that lives in the Timer 2 slot.
+ * Aside from the asynchronous mode and different prescaler taps,
+ * it operates more or less identically to Timer 0, with the same
+ * WGM modes.
+ */
+class avr8_generic_fakertc_timer_device : public avr8_generic_8bit_timer_device
+{
 public:
+    avr8_generic_fakertc_timer_device(const machine_config &mconfig,
+        const char *tag,
+        device_t *owner,
+        uint32_t clock);
+
     enum : uint8_t
     {
         GENERIC_FAKERTC_CS_DISABLED         = 0b000,
@@ -794,8 +888,88 @@ public:
         GENERIC_FAKERTC_CS_PRESCALE_DIV1024 = 0b111,
     };
 
+    virtual void tick() override;
 
+protected:
+    avr8_generic_fakertc_timer_device(const machine_config &mconfig,
+        const char *tag,
+        device_t *owner,
+        uint32_t clock,
+        const device_type device_type);
+
+    virtual void install_wgm_callbacks() override;
+
+    virtual void advance_normal() override;
+    void advance_ctc();
+    void advance_pwm();
+    void advance_pwm_ocr_a();
+    void advance_fast_pwm();
+    void advance_fast_pwm_ocr_a();     
+
+    virtual uint32_t get_num_bits() const override { return 8; }
+    virtual bool is_async_mode() const override { return true; } // ignore attempts by main exec loop to tick the timer
 };
+
+/**
+ * Asynchronous timer controller for the fake RTC, providing the ASSR register
+ * and clock source switching.
+ */
+class avr8_fakertc_async_controller_device : public device_t 
+{
+public:
+    /**
+     * Set external crystal frequency. Default setting is 0 (do not clock).
+     */
+    void set_external_crystal_frequency(attotime period);
+
+    /**
+     * Input from the TOSC1 pin to the asynchronous timer control unit.
+     * If ASSC has EXCLK set, the prescaler will be clocked on TOSC1's rising edge.
+     */
+    void tosc_w(uint8_t data);
+
+    /**
+     * Set asynchronous mode. 0 = clock from I/O clock, 1 = clock from external source.
+     * 
+     * If AS2=0, clk_io rising edge ticks the prescaler.
+     * If AS=1 and EXCLK=0, m_external_crystal_timer ticks the prescaler.
+     * If AS=1 and EXCLK=1, TOSC1 rising edge ticks the prescaler.
+     */
+    void as2_w(uint8_t data);
+
+    void exclk_w(uint8_t data);
+
+    /**
+     * clk_io input. If AS2=0 (default), then the prescaler will be ticked
+     * on the rising edge of this signal.
+     */
+    void clk_io_w(uint8_t data);
+
+    template <typename T> void set_child_timer_tag(T &&tag) { m_child_timer.set_tag(std::forward<T>(tag)); }
+    
+
+    // device-level overrides
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
+    virtual void device_add_mconfig(machine_config &config) override ATTR_COLD;
+
+protected:
+    bool m_exclk;
+    bool m_as2;
+
+    bool m_tosc_last_state;
+    bool m_clk_io;
+
+    required_device<avr8_10bit_prescaler_device> m_prescaler;
+    required_device<avr8_generic_fakertc_timer_device> m_child_timer;
+
+    emu_timer *m_external_crystal_timer;
+    attotime m_external_crystal_period;
+
+    void update_crystal_state();
+};
+
+#if 0
 
 class atmegaxu4_t4_timer_device : avr8_base_timer_device<10>
 {
@@ -845,55 +1019,7 @@ public:
 #endif
 
 
-#if 0
 
-/**
- * Asynchronous timer controller for the fake RTC, providing the ASSR register
- * and clock source switching.
- */
-class avr8_fakertc_async_controller_device : public device_t 
-{
-public:
-    /**
-     * Set external crystal frequency. Default setting is 0 (do not clock).
-     */
-    void set_external_crystal_frequency(attotime period);
-
-    /**
-     * Direct line from the TOSC1 pin to the asynchronous timer control unit.
-     * If ASSC has EXCLK set, the prescaler will be clocked on TOSC1's rising edge.
-     */
-    void tosc_w(uint8_t data);
-
-    /**
-     * Set asynchronous mode. 0 = clock from I/O clock, 1 = clock from external source.
-     * 
-     * If AS2=0, clk_io rising edge ticks the prescaler.
-     * If AS=1 and EXCLK=0, m_external_crystal_timer ticks the prescaler.
-     * If AS=1 and EXCLK=1, TOSC1 rising edge ticks the prescaler.
-     */
-    void as2_w(uint8_t data);
-
-    /**
-     * clk_io input. If AS2=0 (default), then the prescaler will be ticked
-     * on the rising edge of this signal.
-     */
-    void clk_io_w(uint8_t data);
-    
-protected:
-    bool m_exclk;
-    bool m_as2;
-
-    bool m_tosc_last_state;
-    bool m_clk_io;
-
-    required_device<avr8_10bit_prescaler_device> m_prescaler;
-    required_device<avr8_generic_fakertc_timer_device> m_fakertc_timer;
-
-    emu_timer *m_external_crystal_timer;
-};
-
-#endif
 
 // device type definitions
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_0, avr8_generic_t0_timer_device)
@@ -903,5 +1029,9 @@ DECLARE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_1, avr8_generic_t1_timer_device)
 
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_10BIT_PRESCALER, avr8_10bit_prescaler_device)
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_OUTPUT_COMPARE_MODULATOR, avr8_output_compare_modulator_device)
+
+DECLARE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_FAKE_RTC_TIMER, avr8_generic_fakertc_timer_device)
+DECLARE_DEVICE_TYPE(AVR8_CLASSIC_FAKE_RTC_ASYNC_CONTROLLER, avr8_fakertc_async_controller_device)
+
 
 #endif // MAME_CPU_AVR8_AVR8TIMERS_CLASSIC_H
