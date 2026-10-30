@@ -495,6 +495,8 @@ protected:
 
 		// new guys free of the old legacy crap
 		INTIDX_OCF3C,
+		INTIDX_OCF4C,
+		INTIDX_OCF5C,
 
 		INTIDX_COUNT
 	};

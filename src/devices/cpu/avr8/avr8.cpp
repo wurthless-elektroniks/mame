@@ -2388,7 +2388,7 @@ bool atmega32u4_device::pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group)
 	}
 }
 
-const avr8_base_device::interrupt_condition avr8_base_device::s_mega640_int_conditions[avr8_base_device::INTIDX_COUNT] =
+const avr8_base_device::interrupt_condition avr8_base_device::s_mega640_int_conditions[avr8_base_device::INTIDX_COUNT + 1] =
 {
 	// irq id        vector                  dev handled?  irq reg   irq reg mask        flag reg  flag reg mask
 	{ INTIDX_SPI,  	 ATMEGA640_INT_SPI_STC,  0, 		   SPCR,     SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK },
@@ -2407,6 +2407,18 @@ const avr8_base_device::interrupt_condition avr8_base_device::s_mega640_int_cond
 	{ INTIDX_PCINT2, ATMEGA640_INT_PCINT2,   0, 		   PCICR,    PCICR_PCIE2_MASK,   PCIFR,    PCIFR_PCIF2_MASK },
 	{ INTIDX_INT0,   ATMEGA640_INT_INT0,     0, 		   EIMSK,    EIMSK_INT0_MASK,    EIFR,     EIFR_INTF0_MASK },
 	{ INTIDX_INT1,   ATMEGA640_INT_INT1,     0,		       EIMSK,    EIMSK_INT1_MASK,    EIFR,     EIFR_INTF1_MASK },
+	{ INTIDX_OCF3A,  ATMEGA640_INT_T3COMPA,  1,            0,        0,                  0,        0, },
+	{ INTIDX_OCF3B,  ATMEGA640_INT_T3COMPB,  1,            0,        0,                  0,        0, },
+	{ INTIDX_OCF3C,  ATMEGA640_INT_T3COMPC,  1,            0,        0,                  0,        0, },
+	{ INTIDX_TOV3,   ATMEGA640_INT_T3OVF,    1, 		   0,        0,                  0,        0, },
+	{ INTIDX_OCF4A,  ATMEGA640_INT_T4COMPA,  1,            0,        0,                  0,        0, },
+	{ INTIDX_OCF4B,  ATMEGA640_INT_T4COMPB,  1,            0,        0,                  0,        0, },
+	{ INTIDX_OCF4C,  ATMEGA640_INT_T4COMPC,  1,            0,        0,                  0,        0, },
+	{ INTIDX_TOV4,   ATMEGA640_INT_T4OVF,    1, 		   0,        0,                  0,        0, },
+	{ INTIDX_OCF5A,  ATMEGA640_INT_T5COMPA,  1,            0,        0,                  0,        0, },
+	{ INTIDX_OCF5B,  ATMEGA640_INT_T5COMPB,  1,            0,        0,                  0,        0, },
+	{ INTIDX_OCF5C,  ATMEGA640_INT_T5COMPC,  1,            0,        0,                  0,        0, },
+	{ INTIDX_TOV5,   ATMEGA640_INT_T5OVF,    1, 		   0,        0,                  0,        0, },
 	{ 0,             0,                      0,        	   0,        0,                  0,        0, } // end of list
 };
 
