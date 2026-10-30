@@ -540,7 +540,7 @@ class avr8_generic_8bit_timer_device : public avr8_base_timer_device
          * Phase Correct PWM Mode (WGM 0b001): Count from 0x00 to 0xff, then count
          * down from 0xff to 0x00.
          */
-        GENERIC_8BIT_TIMER_PWM               = 0b001,
+        GENERIC_8BIT_TIMER_WGM_PWM               = 0b001,
 
         /**
          * CTC (Clear Timer on Compare) mode (WGM 0b010): Similar to normal mode, but it counts from 0
@@ -569,6 +569,12 @@ class avr8_generic_8bit_timer_device : public avr8_base_timer_device
          */
         GENERIC_8BIT_TIMER_WGM_FAST_PWM_OCR_A = 0b111,
     };
+
+public:
+    void ocr_a_w(uint8_t data);
+    uint8_t ocr_a_r();
+    void ocr_b_w(uint8_t data);
+    uint8_t ocr_b_r();
 
 protected:
     avr8_generic_8bit_timer_device(const machine_config &mconfig,
@@ -599,13 +605,15 @@ protected:
     void force_oc0a(); // force OC0A output as if comparison happened; does not set interrupt flag
     void force_oc0b(); // force OC0B output as if comparison happened; does not set interrupt flag
 
-    virtual uint32_t get_num_bits() const override { return 8; }
+    virtual void com_a_w(uint8_t data) override;
+    virtual void com_b_w(uint8_t data) override;
+    virtual void wgm_w(uint8_t data) override;
 
+    virtual uint32_t get_num_bits() const override { return 8; }
     virtual void advance_normal() override;
-    
 };
 
-class avr8_generic_t0_timer_device : public avr8_base_timer_device
+class avr8_generic_t0_timer_device : public avr8_generic_8bit_timer_device
 {
 public:
     enum : uint8_t
@@ -620,112 +628,30 @@ public:
         GENERIC_TIMER0_CS_T0_RISE          = 0b111, // T0 pin, rising edge, sampled on clk i/o pulse
     };
 
-    enum : uint8_t
-    {
-        /**
-         * Normal mode (WGM 0b000): Counts from 0 to 255. TOV0 is set upon
-         * wrap from 255 to 0.
-         * 
-         * Normal mode uses the same COMxx behavior as CTC mode.
-         */
-        GENERIC_TIMER0_WGM_NORMAL        = 0b000,
-
-        /**
-         * Phase Correct PWM Mode (WGM 0b001): Count from 0x00 to 0xff, then count
-         * down from 0xff to 0x00.
-         */
-        GENERIC_TIMER0_WGM_PWM_BOTTOM    = 0b001,
-
-        /**
-         * CTC (Clear Timer on Compare) mode (WGM 0b010): Similar to normal mode, but it counts from 0
-         * to the value set in OCR0A or OCR0B, whichever is reached first. COMxx settings will be obeyed
-         * here, and will toggle the OCxA and OCxB pins on compare.
-         */
-        GENERIC_TIMER0_WGM_CTC           = 0b010,
-
-        /**
-         * Fast PWM mode (WGM = 0b011): Counts and signals interrupts the same
-         * way as normal mode, but also outputs to the OC0A and OC0B pins on compare.
-         */
-        GENERIC_TIMER0_WGM_FAST_PWM      = 0b011,
-
-        // 0b100 invalid/reserved
-
-        /**
-         * Phase Correct PWM Mode, counting to OCR0A (WGM 0b101)
-         */
-        GENERIC_TIMER0_WGM_PWM_OCR0A     = 0b101,
-
-        // 0b110 invalid/reserved
-
-        /**
-         * Fast PWM mode, counting to OCR0A (WGM = 0b111).
-         */
-        GENERIC_TIMER0_WGM_FAST_PWM_OCR0A = 0b111,
-    };
-
 public:
+    avr8_generic_t0_timer_device(const machine_config &mconfig,
+                                 const char *tag,
+                                 device_t *owner,
+                                 uint32_t clock);
+
+    virtual void tick() override;
+
+    void tcnt_w(uint8_t data);
+    uint8_t tcnt_r() { return m_tcnt & 0xff; }
+
+protected:
     avr8_generic_t0_timer_device(const machine_config &mconfig,
                                  const char *tag,
                                  device_t *owner,
                                  uint32_t clock,
                                  const device_type device_type);
 
-    virtual void tick() override;
-
-    virtual void com_a_w(uint8_t data) override;
-    virtual void com_b_w(uint8_t data) override;
-
-    void ocr_a_w(uint8_t data);
-    uint8_t ocr_a_r();
-    void ocr_b_w(uint8_t data);
-    uint8_t ocr_b_r();
-
-    void tcnt_w(uint8_t data);
-    uint8_t tcnt_r() { return m_tcnt & 0xff; }
-
-    void tccr_b_w(uint8_t data);
-    uint8_t tccr_b_r();
-
-
-    virtual void wgm_w(uint8_t data) override;
-
-protected:
-    virtual void install_wgm_callbacks() override;
-
-    void advance_ctc();
-    void advance_pwm();
-    void advance_pwm_ocr0a();
-    void advance_fast_pwm(); // =GENERIC_TIMER0_WGM_FAST_PWM
-    void advance_fast_pwm_ocr0a();     
-
-    void update_oc0a_fast_pwm_on_compare();
-    void update_oc0a_fast_pwm_on_top();
-    void update_oc0b_fast_pwm_on_compare();
-    void update_oc0b_fast_pwm_on_top();
-
-    void update_oc0a_pwm_on_upcount_compare();
-    void update_oc0a_pwm_on_downcount_compare();
-    void update_oc0b_pwm_on_upcount_compare();
-    void update_oc0b_pwm_on_downcount_compare();
-
-
-    void force_oc0a(); // force OC0A output as if comparison happened; does not set interrupt flag
-    void force_oc0b(); // force OC0B output as if comparison happened; does not set interrupt flag
-
-    virtual uint32_t get_num_bits() const override { return 8; }
-
-    virtual void advance_normal() override;
-    
-
     void cs_w(uint8_t data) override;
-
 };
-
 
 /**
  * Timer 0 implementation for most classic megaAVR-series chips,
- * with related megaAVR mix-ins. 
+ * with related megaAVR mix-ins.
  * 
  * This timer implementation does not apply to the ATMega8 and relatives,
  * nor does it apply to the tinyAVRs, because their TIFR and TIMSK registers
@@ -740,7 +666,15 @@ public:
     avr8_megaavr_timer_0_device(const machine_config &mconfig,
                                 const char *tag,
                                 device_t *owner,
-                                uint32_t clock);                         
+                                uint32_t clock);                
+
+    void tccr_b_w(uint8_t data);
+    uint8_t tccr_b_r();
+
+    // have to put these here so mixins are happy
+    void wgm_w(uint8_t data) { avr8_generic_t0_timer_device::wgm_w(data); }
+    void com_a_w(uint8_t data) { avr8_generic_t0_timer_device::com_a_w(data); }
+    void com_b_w(uint8_t data) { avr8_generic_t0_timer_device::com_b_w(data); }
 };
 
 
@@ -897,17 +831,10 @@ protected:
         uint32_t clock,
         const device_type device_type);
 
-    virtual void install_wgm_callbacks() override;
-
-    virtual void advance_normal() override;
-    void advance_ctc();
-    void advance_pwm();
-    void advance_pwm_ocr_a();
-    void advance_fast_pwm();
-    void advance_fast_pwm_ocr_a();     
-
     virtual uint32_t get_num_bits() const override { return 8; }
     virtual bool is_async_mode() const override { return true; } // ignore attempts by main exec loop to tick the timer
+
+    void cs_w(uint8_t data) override;
 };
 
 /**
@@ -917,6 +844,11 @@ protected:
 class avr8_fakertc_async_controller_device : public device_t 
 {
 public:
+    avr8_fakertc_async_controller_device(const machine_config &mconfig,
+        const char *tag,
+        device_t *owner,
+        uint32_t clock);
+
     /**
      * Set external crystal frequency. Default setting is 0 (do not clock).
      */
@@ -967,6 +899,7 @@ protected:
     attotime m_external_crystal_period;
 
     void update_crystal_state();
+
 };
 
 #if 0
