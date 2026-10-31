@@ -146,10 +146,7 @@ DEFINE_DEVICE_TYPE(AVR8_CLASSIC_FAKE_RTC_ASYNC_CONTROLLER, avr8_fakertc_async_co
 avr8_base_timer_device::avr8_base_timer_device(const machine_config &mconfig, device_type type, const char *tag, device_t *owner, uint32_t clock) :
     device_t(mconfig, type, tag, owner, clock),
     m_upstream_prescaler(*this, "syncprescaler"),
-    m_tov_int_cb(*this),
-    m_ocf_a_int_cb(*this),
-    m_ocf_b_int_cb(*this),
-    m_ocf_c_int_cb(*this),
+    m_int_cbs(*this),
     m_oc_a_en_w_cb(*this),
     m_oc_b_en_w_cb(*this),
     m_oc_c_en_w_cb(*this),
@@ -172,14 +169,8 @@ void avr8_base_timer_device::device_start()
     save_item(NAME(m_com_a));
     save_item(NAME(m_com_b));
     save_item(NAME(m_com_c));
-    save_item(NAME(m_toie));
-    save_item(NAME(m_tov));
-    save_item(NAME(m_ocie_a));
-    save_item(NAME(m_ocf_a));
-    save_item(NAME(m_ocie_b));
-    save_item(NAME(m_ocf_b));
-    save_item(NAME(m_ocie_c));
-    save_item(NAME(m_ocf_c));
+    save_item(NAME(m_int));
+    save_item(NAME(m_int_en));
     save_item(NAME(m_prtim));
     save_item(NAME(m_t));
     save_item(NAME(m_t_last));
@@ -203,144 +194,73 @@ void avr8_base_timer_device::device_reset()
     m_com_a = AVR8_TIMER_COM_NORMAL;
     m_com_b = AVR8_TIMER_COM_NORMAL;
     m_com_c = AVR8_TIMER_COM_NORMAL;
-    m_toie = false;
-    m_tov = false;
-    m_ocie_a = false;
-    m_ocf_a = false;
-    m_ocie_b = false;
-    m_ocf_b = false;
-    m_ocie_c = false;
-    m_ocf_c = false;
+
+    for (int i = 0; i < AVR8_TIMER_INTCHANNEL_MAX; i++)
+    {
+        m_int[i] = false;
+        m_int_en[i] = false;
+    }
+
     m_prtim = false;
     m_t = false;
     m_t_last = false;
 }
 
-void avr8_base_timer_device::toie_w(uint8_t data)
+template <uint8_t Channel> 
+void avr8_base_timer_device::int_w(uint8_t data)
 {
-    m_toie = data != 0;
-    if (!m_tov_int_cb.isunset()) m_tov_int_cb(m_toie && m_tov);
+    if (!data) return;
+
+    // any nonzero write to the interrupt flag (from the CPU program) will clear the interrupt
+    m_int[Channel] = false;
+    if (m_int_en[Channel] && !m_int_cbs[Channel].isunset()) m_int_cbs[Channel](0);
 }
 
-void avr8_base_timer_device::ocie_a_w(uint8_t data)
+template <uint8_t Channel> 
+void avr8_base_timer_device::int_ack_w(uint8_t data)
 {
-    m_ocie_a = data != 0;
-    if (!m_ocf_a_int_cb.isunset()) m_ocf_a_int_cb(m_ocie_a && m_ocf_a);
+    // this is an interrupt acknowledge coming from the AVR8 CPU itself (because it just took the interrupt),
+    // so don't run callback or we'll get infinite recursion headaches
+    m_int[Channel] = false;
 }
 
-void avr8_base_timer_device::ocie_b_w(uint8_t data)
+template <uint8_t Channel> 
+void avr8_base_timer_device::int_en_w(uint8_t data)
 {
-    m_ocie_b = data != 0;
-    if (!m_ocf_b_int_cb.isunset()) m_ocf_b_int_cb(m_ocie_b && m_ocf_b);
+    m_int_en[Channel] = data != 0;
+    if (!m_int_cbs[Channel].isunset()) m_int_cbs[Channel](m_int_en[Channel] && m_int[Channel]);
 }
 
-void avr8_base_timer_device::ocie_c_w(uint8_t data)
+// if you remove these, then i hope you like linker errors...
+template void avr8_base_timer_device::int_w<AVR8_TIMER_INTCHANNEL_OV>(uint8_t);
+template void avr8_base_timer_device::int_w<AVR8_TIMER_INTCHANNEL_OC_A>(uint8_t);
+template void avr8_base_timer_device::int_w<AVR8_TIMER_INTCHANNEL_OC_B>(uint8_t);
+template void avr8_base_timer_device::int_w<AVR8_TIMER_INTCHANNEL_OC_C>(uint8_t);
+template void avr8_base_timer_device::int_w<AVR8_TIMER_INTCHANNEL_IC>(uint8_t);
+template void avr8_base_timer_device::int_en_w<AVR8_TIMER_INTCHANNEL_OV>(uint8_t);
+template void avr8_base_timer_device::int_en_w<AVR8_TIMER_INTCHANNEL_OC_A>(uint8_t);
+template void avr8_base_timer_device::int_en_w<AVR8_TIMER_INTCHANNEL_OC_B>(uint8_t);
+template void avr8_base_timer_device::int_en_w<AVR8_TIMER_INTCHANNEL_OC_C>(uint8_t);
+template void avr8_base_timer_device::int_en_w<AVR8_TIMER_INTCHANNEL_IC>(uint8_t);
+template void avr8_base_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OV>(uint8_t);
+template void avr8_base_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_A>(uint8_t);
+template void avr8_base_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_B>(uint8_t);
+template void avr8_base_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_C>(uint8_t);
+template void avr8_base_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_IC>(uint8_t);
+
+template <uint8_t Channel> 
+void avr8_base_timer_device::raise_int()
 {
-    m_ocie_c = data != 0;
-    if (!m_ocf_c_int_cb.isunset()) m_ocf_c_int_cb(m_ocie_c && m_ocf_c);
+    m_int[Channel] = true;
+    if (m_int_en[Channel] && !m_int_cbs[Channel].isunset()) m_int_cbs[Channel](1);
 }
 
-void avr8_base_timer_device::tov_w(uint8_t data)
+template <uint8_t Channel> 
+void avr8_base_timer_device::clear_int()
 {
-    if (data == 0) return;
-
-    LOGMASKED(LOG_INT_ACKS, "%s: TOV int acknowledged by program\n", machine().describe_context());
-    clear_tov();
+    m_int[Channel] = false;
+    if (m_int_en[Channel] && !m_int_cbs[Channel].isunset()) m_int_cbs[Channel](0);
 }
-
-void avr8_base_timer_device::tov_ack_w(uint8_t _)
-{
-    LOGMASKED(LOG_INT_ACKS, "%s: TOV int acknowledged by CPU\n", machine().describe_context());
-    m_tov = false;
-}
-
-void avr8_base_timer_device::ocf_a_ack_w(uint8_t _)
-{
-    LOGMASKED(LOG_INT_ACKS, "%s: OCF A int acknowledged by CPU\n", machine().describe_context());
-    m_ocf_a = false;
-}
-
-void avr8_base_timer_device::ocf_b_ack_w(uint8_t _)
-{
-    LOGMASKED(LOG_INT_ACKS, "%s: OCF B int acknowledged by CPU\n", machine().describe_context());
-    m_ocf_b = false;
-}
-
-void avr8_base_timer_device::ocf_c_ack_w(uint8_t _)
-{
-    LOGMASKED(LOG_INT_ACKS, "%s: OCF C int acknowledged by CPU\n", machine().describe_context());
-    m_ocf_c = false;
-}
-
-void avr8_base_timer_device::ocf_a_w(uint8_t data)
-{
-    if (data == 0) return;
-
-    clear_ocf_a();
-}
-
-void avr8_base_timer_device::ocf_b_w(uint8_t data)
-{
-    if (data == 0) return;
-
-    clear_ocf_b();
-}
-
-void avr8_base_timer_device::ocf_c_w(uint8_t data)
-{
-    if (data == 0) return;
-
-    clear_ocf_c();
-}
-
-void avr8_base_timer_device::raise_tov()
-{
-    m_tov = true;
-    if (m_toie && !m_tov_int_cb.isunset()) m_tov_int_cb(1);
-}
-
-void avr8_base_timer_device::raise_ocf_a()
-{
-    m_ocf_a = true;
-    if (m_ocie_a && !m_ocf_a_int_cb.isunset()) m_ocf_a_int_cb(1);
-}
-
-void avr8_base_timer_device::raise_ocf_b()
-{
-    m_ocf_b = true;
-    if (m_ocie_b && !m_ocf_b_int_cb.isunset()) m_ocf_b_int_cb(1);
-}
-
-void avr8_base_timer_device::raise_ocf_c()
-{
-    m_ocf_c = true;
-    if (m_ocie_c && !m_ocf_c_int_cb.isunset()) m_ocf_c_int_cb(1);
-}
-
-void avr8_base_timer_device::clear_tov()
-{
-    m_tov = false;
-    if (m_toie && !m_tov_int_cb.isunset()) m_tov_int_cb(0);
-}
-
-void avr8_base_timer_device::clear_ocf_a()
-{
-    m_ocf_a = false;
-    if (m_ocie_a && !m_ocf_a_int_cb.isunset()) m_ocf_a_int_cb(1);
-}
-
-void avr8_base_timer_device::clear_ocf_b()
-{
-    m_ocf_b = false;
-    if (m_ocie_b && !m_ocf_b_int_cb.isunset()) m_ocf_b_int_cb(1);
-}
-
-void avr8_base_timer_device::clear_ocf_c()
-{
-    m_ocf_c = false;
-    if (m_ocie_c && !m_ocf_c_int_cb.isunset()) m_ocf_c_int_cb(1);
-}
-
 
 void avr8_base_timer_device::com_a_w(uint8_t data)
 {
@@ -1521,11 +1441,11 @@ void avr8_generic_t1_timer_device::update_oc_c_pwm_on_downcount_compare()
     switch (m_com_c)
     {
         case AVR8_TIMER_COM_SET:
-            if (!m_oc_c_w_cb.isunset()) m_oc_b_w_cb(1);
+            if (!m_oc_c_w_cb.isunset()) m_oc_c_w_cb(1);
             break;
         
         case AVR8_TIMER_COM_CLEAR:
-            if (!m_oc_c_w_cb.isunset()) m_oc_b_w_cb(0);
+            if (!m_oc_c_w_cb.isunset()) m_oc_c_w_cb(0);
             break;
         
         default:
@@ -1663,8 +1583,6 @@ void avr8_generic_t1_timer_device::cs_w(uint8_t data)
     // Like Timer 1, this always runs in sync with the I/O clock,
     // and m_cs should contain the same structure.
     m_cs = BIT(data, 0, 3);
-
-    printf("m_cs: switching to mode %d\n", m_cs);
 }
 
 void avr8_generic_t1_timer_device::tcnt_h_w(uint8_t data)
@@ -1782,12 +1700,12 @@ void avr8_generic_t1_timer_device::ocr_c_l_w(uint8_t data)
 
 uint8_t avr8_generic_t1_timer_device::ocr_c_h_r()
 {
-    return BIT(m_ocr_c_buf, 8, 8);
+    return m_ocr_c_enabled ? BIT(m_ocr_c_buf, 8, 8) : 0;
 }
 
 uint8_t avr8_generic_t1_timer_device::ocr_c_l_r()
 {
-    return BIT(m_ocr_c_buf, 0, 8);
+    return m_ocr_c_enabled ? BIT(m_ocr_c_buf, 0, 8) : 0;
 }
 
 void avr8_generic_t1_timer_device::tccr_b_w(uint8_t data)

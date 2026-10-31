@@ -3,6 +3,16 @@
 
 #pragma once
 
+enum avr8_timer_intchannel : uint8_t
+{
+    AVR8_TIMER_INTCHANNEL_OV,
+    AVR8_TIMER_INTCHANNEL_OC_A,
+    AVR8_TIMER_INTCHANNEL_OC_B,
+    AVR8_TIMER_INTCHANNEL_OC_C,
+    AVR8_TIMER_INTCHANNEL_IC,
+
+    AVR8_TIMER_INTCHANNEL_MAX,
+};
 
 /**
  * Common 10-bit prescaler implementation.
@@ -123,6 +133,14 @@ public:
     auto oc_b_toggle_w_cb() { return m_oc_b_toggle_w_cb.bind(); }
     auto oc_c_toggle_w_cb() { return m_oc_c_toggle_w_cb.bind(); }
 
+    template <uint8_t Channel> auto int_cb() { return m_int_cbs[Channel].bind(); }
+    template <uint8_t Channel> void int_w(uint8_t data); // write 1 to acknowledge interrupt *AND* clear any interrupt pending on the CPU
+    template <uint8_t Channel> void int_ack_w(uint8_t data); // write anything to acknowledge interrupt ONLY
+    template <uint8_t Channel> uint8_t int_r() { return m_int[Channel]; } // read interrupt flag
+    template <uint8_t Channel> void int_en_w(uint8_t data);
+    template <uint8_t Channel> uint8_t int_en_r() { return m_int_en[Channel]; }
+
+#if 0
     // TOV/TOIE: timer overflow interrupt, common to all timers
     auto tov_int_cb() { return m_tov_int_cb.bind(); } // TOVx interrupt callback (can clear a pending interrupt)
     void tov_w(uint8_t data); // TOVx clear/acknowledge (when written by program)
@@ -156,8 +174,11 @@ public:
     uint8_t ocie_c_r() { return m_ocie_c; }
 
     // ICF
+    auto icf_int_cb() { return m_icf_int_cb.bind(); }
     void icf_w(uint8_t data);
-    uint8_t icf_r();
+    void ocf_c_ack_w(uint8_t data);
+    uint8_t icf_r() { return m_icf; } 
+#endif
 
     /**
      * Writes the PRTIMx value (1 = shutdown, 0 = run).
@@ -257,6 +278,17 @@ protected:
     uint8_t m_com_b;
     uint8_t m_com_c;
 
+
+    // Interrupt enables and interrupt flags, MUST BE SAVESTATE-ABLE.
+    bool m_int[AVR8_TIMER_INTCHANNEL_MAX];
+    bool m_int_en[AVR8_TIMER_INTCHANNEL_MAX];
+
+    // Interrupt callbacks; all write 1 to set interrupt pending and 0 to clear it.
+    // When one of these are called, the core or whatever else implementing the callback
+    // should NOT try to clear/raise an interrupt again, or we get infinite recursion headaches.
+    devcb_write_line::array<AVR8_TIMER_INTCHANNEL_MAX> m_int_cbs;
+
+#if 0
     // Interrupt enables and interrupt flags, MUST BE SAVESTATE-ABLE.
     bool m_toie;  // TOIEx; overflow interrupt enable
     bool m_tov;   // TOVx; overflow interrupt flag
@@ -269,6 +301,7 @@ protected:
     
     bool m_icie; // ICIE; input capture interrupt enable
     bool m_icf;
+#endif
 
     bool m_prtim; // PRTIMx bit; usually stops counting when true
 
@@ -282,6 +315,7 @@ protected:
 
     bool m_clk_io; // clk_io signal; derrived from master clock. typically the same as the CPU clcok
 
+#if 0
     // Interrupt callbacks; all write 1 to set interrupt pending and 0 to clear it.
     // When one of these are called, the core or whatever else implementing the callback
     // should NOT try to clear/raise an interrupt again, or we get infinite recursion headaches.
@@ -289,6 +323,8 @@ protected:
     devcb_write_line m_ocf_a_int_cb;
     devcb_write_line m_ocf_b_int_cb;
     devcb_write_line m_ocf_c_int_cb;
+    devcb_write_line m_icf_int_cb;
+#endif
 
     // OCxx output callbacks when enabling/disabling the outputs
     // so downstream GPIO drivers and other devices can react.
@@ -323,9 +359,9 @@ protected:
     inline uint32_t prev_count() { return (m_tcnt - 1) & max_count(); } // return TCNT-1, wrapping to MAX on underflow
     inline bool will_next_count_overflow() { return m_tcnt != 0 && next_count() == 0; } // return true if tcnt will wrap
     inline bool will_prev_count_reach_bottom() { return m_tcnt != 0 && prev_count() == 0; } // return true if tcnt will hit 0 if counting down
-    inline bool is_compare_a() { return m_tcnt == m_ocr_a; }
-    inline bool is_compare_b() { return m_tcnt == m_ocr_b; }
-    inline bool is_compare_c() { return m_tcnt == m_ocr_c; }
+    inline bool is_compare_a() { return !m_no_compare_this_cycle && m_tcnt == m_ocr_a; }
+    inline bool is_compare_b() { return !m_no_compare_this_cycle && m_tcnt == m_ocr_b; }
+    inline bool is_compare_c() { return !m_no_compare_this_cycle && m_tcnt == m_ocr_c; }
     inline bool is_max_count() { return m_tcnt == max_count(); }
     inline bool will_compare_a() { return next_count() == m_ocr_a; }
     inline bool will_compare_b() { return next_count() == m_ocr_b; }
@@ -334,15 +370,20 @@ protected:
     inline bool will_prev_compare_b() { return prev_count() == m_ocr_b; }
     inline bool will_prev_compare_c() { return prev_count() == m_ocr_c; }
     
-    void raise_tov();   // raise TOV flag and signal an interrupt if enabled
-    void raise_ocf_a(); // raise OCFxA flag and signal an interrupt if enabled
-    void raise_ocf_b(); // raise OCFxB flag and signal an interrupt if enabled
-    void raise_ocf_c(); // raise OCFxC flag and signal an interrupt if enabled
+    template <uint8_t Channel> void raise_int();
+    template <uint8_t Channel> void clear_int();
 
-    void clear_tov(); // clear TOV flag and de-assert CPU interrupt
-    void clear_ocf_a(); // clear OCFxA flag and de-assert CPU interrupt
-    void clear_ocf_b(); // clear OCFxB flag and de-assert CPU interrupt
-    void clear_ocf_c(); // clear OCFxC flag and de-assert CPU interrupt
+    inline void raise_tov() { raise_int<AVR8_TIMER_INTCHANNEL_OV>(); }
+    inline void raise_ocf_a() { raise_int<AVR8_TIMER_INTCHANNEL_OC_A>(); }
+    inline void raise_ocf_b() { raise_int<AVR8_TIMER_INTCHANNEL_OC_B>(); }
+    inline void raise_ocf_c() { raise_int<AVR8_TIMER_INTCHANNEL_OC_C>(); }
+    inline void raise_icf() { raise_int<AVR8_TIMER_INTCHANNEL_IC>(); }
+
+    inline void clear_tov() { clear_int<AVR8_TIMER_INTCHANNEL_OV>(); }
+    inline void clear_ocf_a() { clear_int<AVR8_TIMER_INTCHANNEL_OC_A>(); }
+    inline void clear_ocf_b() { clear_int<AVR8_TIMER_INTCHANNEL_OC_B>(); }
+    inline void clear_ocf_c() { clear_int<AVR8_TIMER_INTCHANNEL_OC_C>(); }
+    inline void clear_icf() { clear_int<AVR8_TIMER_INTCHANNEL_IC>(); }
 
     virtual bool is_async_mode() const { return false; } // default assumes synchronous timer, so always returns false
 
@@ -381,21 +422,21 @@ class avr8_megaavr_tifr_mixin
 public:
     void tifr_w(uint8_t data)
     {
-        if (0 <= TovBit && TovBit <= 7) ((T*)this)->tov_w(BIT(data, TovBit));
-        if (0 <= OcfABit && OcfABit <= 7) ((T*)this)->ocf_a_w(BIT(data, OcfABit));
-        if (0 <= OcfBBit && OcfBBit <= 7) ((T*)this)->ocf_b_w(BIT(data, OcfBBit));
-        if (0 <= OcfCBit && OcfCBit <= 7) ((T*)this)->ocf_c_w(BIT(data, OcfCBit));
-        if (0 <= TicfBit && TicfBit <= 7) ((T*)this)->icf_w(BIT(data, TicfBit));
+        if (0 <= TovBit && TovBit <= 7) ((T*)this)->template int_w<AVR8_TIMER_INTCHANNEL_OV>(BIT(data, TovBit));
+        if (0 <= OcfABit && OcfABit <= 7) ((T*)this)->template int_w<AVR8_TIMER_INTCHANNEL_OC_A>(BIT(data, OcfABit));
+        if (0 <= OcfBBit && OcfBBit <= 7) ((T*)this)->template int_w<AVR8_TIMER_INTCHANNEL_OC_B>(BIT(data, OcfBBit));
+        if (0 <= OcfCBit && OcfCBit <= 7) ((T*)this)->template int_w<AVR8_TIMER_INTCHANNEL_OC_C>(BIT(data, OcfCBit));
+        if (0 <= TicfBit && TicfBit <= 7) ((T*)this)->template int_w<AVR8_TIMER_INTCHANNEL_IC>(BIT(data, TicfBit));
     }
 
     uint8_t tifr_r()
     {
         return
-            (0 <= TovBit && TovBit <= 7 ? ((T*)this)->tov_r() << TovBit : 0) |
-            (0 <= OcfABit && OcfABit <= 7 ? ((T*)this)->ocf_a_r() << OcfABit : 0) |
-            (0 <= OcfBBit && OcfBBit <= 7 ? ((T*)this)->ocf_b_r() << OcfBBit : 0) |
-            (0 <= OcfCBit && OcfCBit <= 7 ? ((T*)this)->ocf_c_r() << OcfCBit : 0) |
-            (0 <= TicfBit && TicfBit <= 7 ? ((T*)this)->icf_r() << TicfBit : 0);
+            (0 <= TovBit && TovBit <= 7 ? ((T*)this)->template int_r<AVR8_TIMER_INTCHANNEL_OV>() << TovBit : 0) |
+            (0 <= OcfABit && OcfABit <= 7 ? ((T*)this)->template int_r<AVR8_TIMER_INTCHANNEL_OC_A>() << OcfABit : 0) |
+            (0 <= OcfBBit && OcfBBit <= 7 ? ((T*)this)->template int_r<AVR8_TIMER_INTCHANNEL_OC_B>() << OcfBBit : 0) |
+            (0 <= OcfCBit && OcfCBit <= 7 ? ((T*)this)->template int_r<AVR8_TIMER_INTCHANNEL_OC_C>() << OcfCBit : 0) |
+            (0 <= TicfBit && TicfBit <= 7 ? ((T*)this)->template int_r<AVR8_TIMER_INTCHANNEL_IC>() << TicfBit : 0);
     }
 };
 
@@ -493,25 +534,22 @@ class avr8_megaavr_timsk_mixin
 public:
     void timsk_w(uint8_t data)
     {
-        if (0 <= ToieBit && ToieBit <= 7) ((T*)this)->toie_w(BIT(data, ToieBit));
-        if (0 <= OcieABit && OcieABit <= 7) ((T*)this)->ocie_a_w(BIT(data, OcieABit));
-        if (0 <= OcieBBit && OcieBBit <= 7) ((T*)this)->ocie_b_w(BIT(data, OcieBBit));
-        if (0 <= OcieCBit && OcieCBit <= 7) ((T*)this)->ocie_c_w(BIT(data, OcieCBit));
-
-        // TODO: ICIE bit handling
+        if (0 <= ToieBit && ToieBit <= 7) ((T*)this)->template int_en_w<AVR8_TIMER_INTCHANNEL_OV>(BIT(data, ToieBit));
+        if (0 <= OcieABit && OcieABit <= 7) ((T*)this)->template int_en_w<AVR8_TIMER_INTCHANNEL_OC_A>(BIT(data, OcieABit));
+        if (0 <= OcieBBit && OcieBBit <= 7) ((T*)this)->template int_en_w<AVR8_TIMER_INTCHANNEL_OC_B>(BIT(data, OcieBBit));
+        if (0 <= OcieCBit && OcieCBit <= 7) ((T*)this)->template int_en_w<AVR8_TIMER_INTCHANNEL_OC_C>(BIT(data, OcieCBit));
+        if (0 <= IcieBit && IcieBit <= 7) ((T*)this)->template int_en_w<AVR8_TIMER_INTCHANNEL_IC>(BIT(data, OcieCBit));
     }
 
     uint8_t timsk_r()
     {
         uint8_t result = 0;
 
-        if (0 <= ToieBit && ToieBit <= 7) result |= ((T*)this)->toie_r() << ToieBit;
-        if (0 <= OcieABit && OcieABit <= 7) result |= ((T*)this)->ocie_a_r() << OcieABit;
-        if (0 <= OcieBBit && OcieBBit <= 7) result |= ((T*)this)->ocie_b_r() << OcieBBit;
-        if (0 <= OcieCBit && OcieCBit <= 7) result |= ((T*)this)->ocie_c_r() << OcieCBit;
-
-        // TODO: ICIE bit handling
-
+        if (0 <= ToieBit && ToieBit <= 7) result |= ((T*)this)->template int_en_r<AVR8_TIMER_INTCHANNEL_OV>() << ToieBit;
+        if (0 <= OcieABit && OcieABit <= 7) result |= ((T*)this)->template int_en_r<AVR8_TIMER_INTCHANNEL_OC_A>() << OcieABit;
+        if (0 <= OcieBBit && OcieBBit <= 7) result |= ((T*)this)->template int_en_r<AVR8_TIMER_INTCHANNEL_OC_B>() << OcieBBit;
+        if (0 <= OcieCBit && OcieCBit <= 7) result |= ((T*)this)->template int_en_r<AVR8_TIMER_INTCHANNEL_OC_C>() << OcieCBit;
+        if (0 <= IcieBit && IcieBit <= 7) result |= ((T*)this)->template int_en_r<AVR8_TIMER_INTCHANNEL_IC>() << IcieBit;
         return result;
     }
 };

@@ -1846,24 +1846,24 @@ void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
 	// for routing them.
 	auto &timer0(AVR8_CLASSIC_MEGAAVR_TIMER_0(config, "timer0", 0));
 	timer0.set_upstream_prescaler_tag(subdevice<avr8_10bit_prescaler_device>("syncprescale")->tag());
-	timer0.tov_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_TOV0>));
-	timer0.ocf_a_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF0A>));
-	timer0.ocf_b_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF0B>));
-	m_int_ack_cbs[INTIDX_TOV0].bind().set("timer0", FUNC(avr8_megaavr_timer_0_device::tov_ack_w));
-	m_int_ack_cbs[INTIDX_OCF0A].bind().set("timer0", FUNC(avr8_megaavr_timer_0_device::ocf_a_ack_w));
-	m_int_ack_cbs[INTIDX_OCF0B].bind().set("timer0", FUNC(avr8_megaavr_timer_0_device::ocf_b_ack_w));
+	timer0.int_cb<AVR8_TIMER_INTCHANNEL_OV>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_TOV0>));
+	timer0.int_cb<AVR8_TIMER_INTCHANNEL_OC_A>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF0A>));
+	timer0.int_cb<AVR8_TIMER_INTCHANNEL_OC_B>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF0B>));
+	m_int_ack_cbs[INTIDX_TOV0].bind().set("timer0", FUNC(avr8_megaavr_timer_0_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OV>));
+	m_int_ack_cbs[INTIDX_OCF0A].bind().set("timer0", FUNC(avr8_megaavr_timer_0_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_A>));
+	m_int_ack_cbs[INTIDX_OCF0B].bind().set("timer0", FUNC(avr8_megaavr_timer_0_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_B>));
 
 	// The megaAVRs all use the same Timer 1 implementation, a 16-bit timer.
 	// Any device that uses three-channel mode has to enable it in its device_add_mconfig().
 	auto &timer1(AVR8_CLASSIC_GENERIC_TIMER_1(config, "timer1", 0));
 	timer1.set_upstream_prescaler_tag(subdevice<avr8_10bit_prescaler_device>("syncprescale")->tag());
-	timer1.tov_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_TOV1>));
-	timer1.ocf_a_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF1A>));
-	timer1.ocf_b_int_cb().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF1B>));
+	timer1.int_cb<AVR8_TIMER_INTCHANNEL_OV>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_TOV1>));
+	timer1.int_cb<AVR8_TIMER_INTCHANNEL_OC_A>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF1A>));
+	timer1.int_cb<AVR8_TIMER_INTCHANNEL_OC_B>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF1B>));
 	// OCF1C to be installed by sub-devices
-	m_int_ack_cbs[INTIDX_TOV1].bind().set("timer1", FUNC(avr8_generic_t1_timer_device::tov_ack_w));
-	m_int_ack_cbs[INTIDX_OCF1A].bind().set("timer1", FUNC(avr8_generic_t1_timer_device::ocf_a_ack_w));
-	m_int_ack_cbs[INTIDX_OCF1B].bind().set("timer1", FUNC(avr8_generic_t1_timer_device::ocf_b_ack_w));
+	m_int_ack_cbs[INTIDX_TOV1].bind().set("timer1", FUNC(avr8_generic_t1_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OV>));
+	m_int_ack_cbs[INTIDX_OCF1A].bind().set("timer1", FUNC(avr8_generic_t1_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_A>));
+	m_int_ack_cbs[INTIDX_OCF1B].bind().set("timer1", FUNC(avr8_generic_t1_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_B>));
 }
 
 // ATMegax8 series (ATMega88, ATMega168, ATMega328)
@@ -1935,14 +1935,14 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 	timer3.oc_a_w_cb().set(&atmegaxu4_base_device::set_gpio_bit<GPIOC, 6>, "set_gpio_bit_pc6");
 	timer3.oc_a_toggle_w_cb().set(&atmegaxu4_base_device::toggle_gpio_bit<GPIOC, 6>, "toggle_gpio_bit_pc6");
 
-	timer3.tov_int_cb().set(FUNC(atmegaxu4_base_device::int_line_w<INTIDX_TOV3>));
-	timer3.ocf_a_int_cb().set(FUNC(atmegaxu4_base_device::int_line_w<INTIDX_OCF3A>));
-	timer3.ocf_b_int_cb().set(FUNC(atmegaxu4_base_device::int_line_w<INTIDX_OCF3B>));
-	timer3.ocf_c_int_cb().set(FUNC(atmegaxu4_base_device::int_line_w<INTIDX_OCF3C>));
-	m_int_ack_cbs[INTIDX_TOV3].bind().set("timer3", FUNC(avr8_generic_t1_timer_device::tov_ack_w));
-	m_int_ack_cbs[INTIDX_OCF3A].bind().set("timer3", FUNC(avr8_generic_t1_timer_device::ocf_a_ack_w));
-	m_int_ack_cbs[INTIDX_OCF3B].bind().set("timer3", FUNC(avr8_generic_t1_timer_device::ocf_b_ack_w));
-	m_int_ack_cbs[INTIDX_OCF3C].bind().set("timer3", FUNC(avr8_generic_t1_timer_device::ocf_c_ack_w));
+	timer3.int_cb<AVR8_TIMER_INTCHANNEL_OV>().set(FUNC(atmegaxu4_base_device::int_line_w<INTIDX_TOV3>));
+	timer3.int_cb<AVR8_TIMER_INTCHANNEL_OC_A>().set(FUNC(atmegaxu4_base_device::int_line_w<INTIDX_OCF3A>));
+	timer3.int_cb<AVR8_TIMER_INTCHANNEL_OC_B>().set(FUNC(atmegaxu4_base_device::int_line_w<INTIDX_OCF3B>));
+	timer3.int_cb<AVR8_TIMER_INTCHANNEL_OC_C>().set(FUNC(atmegaxu4_base_device::int_line_w<INTIDX_OCF3C>));
+	m_int_ack_cbs[INTIDX_TOV3].bind().set("timer3", FUNC(avr8_generic_t1_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OV>));
+	m_int_ack_cbs[INTIDX_OCF3A].bind().set("timer3", FUNC(avr8_generic_t1_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_A>));
+	m_int_ack_cbs[INTIDX_OCF3B].bind().set("timer3", FUNC(avr8_generic_t1_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_B>));
+	m_int_ack_cbs[INTIDX_OCF3C].bind().set("timer3", FUNC(avr8_generic_t1_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_C>));
 
 	// Timer 4: 10-bit highspeed, driven by PLL or FCPU
 	// Timer 4: OC4A = PC7, /OC4A = PC6,
@@ -4678,15 +4678,6 @@ void avr8_device::execute_run()
 					m_timers[i]->clk_io_w(0);
 				}
 			}
-
-			// old timer shit!!!! to be removed before the PR happens
-			// m_timer_prescale_count[0]++;
-			// if (m_timer_prescale_count[0] > m_timer_prescale[0])
-			// 	m_timer0_tick();
-
-			// m_timer_prescale_count[1]++;
-			// if (m_timer_prescale_count[1] > m_timer_prescale[1])
-			// 	m_timer1_tick();
 
 			m_timer_prescale_count[2]++;
 			if (m_timer_prescale_count[2] > m_timer_prescale[2])
