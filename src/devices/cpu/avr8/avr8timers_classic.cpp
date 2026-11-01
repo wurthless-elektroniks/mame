@@ -11,29 +11,15 @@
     to go into a separate file, if we ever get to the point where we need to emulate the
     newer chips.
 
-    Design philosophy:
-    -----------------------------------------------------------------
-
-    - Airgap all timer classes from the AVR8 core implementations.
-      The timers are devices and not really part of the CPU core itself,
-      so all we really have are lines that come in, and lines that go out.
-    
-    - The AVR8 core keeps track of what calls tick(), and switches time
-      sources for us. However, any write to a timer register that forces
-      a time source switch should signal back to the core, or whatever
-      is listening, that it's time to switch to another source.
-      See AVR8_TIMER_SOURCE_xx enums.
-
     Brief intro to the classic AVR8 timer subsytem:
     -----------------------------------------------------------------
 
     Typically, the classic AVR8s have the following kinds of timers: 8-bit low-precision,
     16-bit high precision, and/or a high-speed timer subsystem.
 
+    The "classic" megaAVRs, and their timers, are:
+
     | Series       | Timer 0 | Timer 1 | Timer 2 | Timer 3 | Timer 4 | Timer 5 |
-    |--------------|---------|---------|---------|---------|---------|---------|
-    | ATMega 8, 16,| Generic | Generic | 8-bit   |  n/a    |  n/a    |  n/a    | <-- different register scheme
-    | 32           | timer 0 | timer 1 | fakeRTC |         |         |         |     than the other megaAVRs!
     |--------------|---------|---------|---------|---------|---------|---------|
     | ATMega       | Generic | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |
     | 88, 168, 328 | timer 0 | timer 1 | fakeRTC |         |         |         |
@@ -50,12 +36,6 @@
     | ATMega 1284, | Generic | Generic | 8-bit   | Generic |  n/a    |  n/a    | 
     | 2564         | timer 0 | timer 1 | fakeRTC | timer 1 |         |         |
     |--------------|---------|---------|---------|---------|---------|---------|
-    | ATTiny 15    | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |  n/a    |
-    |              | timer 0 | hispeed |         |         |         |         |
-    |--------------|---------|---------|---------|---------|---------|---------|
-    | ATTiny 25,   | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |  n/a    |
-    | 45, 85       | timer 0 | hispeed |         |         |         |         |
-    |--------------|---------|---------|---------|---------|---------|---------|
 
     The most common timer types are implementations of a generic 8-bit and 16-bit design.
     
@@ -66,15 +46,30 @@
     The generic 16-bit timer is usually in the Timer 1 slot. On most devices it will have
     two compare channels, but some implementations give it three compare channels.
     
-    Not included in this file are the high-speed timers, which have many underlying
-    differences from the generic 8/16-bit timers and need their own timing subsystems:
+    The 10-bit highspeed timer on the ATMegaXU4 series is driven either from
+    clk_io or a high-speed PLL. Since its subsystem is different enough from the
+    standard AVR8 scheme, its implementation goes in a separate file.
 
-    - The ATMegaxU4 devices have a 10-bit high-speed timer that can be driven either from
-      clk_io or a high-speed PLL.
+    The oldest AVR8s and old ATTinys have different registers on the CPU side,
+    but they can also use this timer subsystem to an extent.
+    Those devices are:
 
-    - The ATTiny15 has its own high-speed timer implementation, this time with an 8-bit
-      timer. The ATTiny25/45/85 inherits this timer, but it adds more features on top of
-      having a ATTiny15 backwards compatibility mode.
+    | Series       | Timer 0 | Timer 1 | Timer 2 | Timer 3 | Timer 4 | Timer 5 |
+    |--------------|---------|---------|---------|---------|---------|---------|
+    | ATMega 8, 16,| Generic | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |
+    | 32           | timer 0 | timer 1 | fakeRTC |         |         |         | 
+    |--------------|---------|---------|---------|---------|---------|---------|
+    | ATTiny 15    | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |  n/a    |
+    |              | timer 0 | hispeed |         |         |         |         |
+    |--------------|---------|---------|---------|---------|---------|---------|
+    | ATTiny 25,   | Generic | 8-bit   |  n/a    |  n/a    |  n/a    |  n/a    |
+    | 45, 85       | timer 0 | hispeed |         |         |         |         |
+    |--------------|---------|---------|---------|---------|---------|---------|
+
+    The ATTiny15 has its own high-speed timer implementation, this time with an 8-bit
+    timer. The ATTiny25/45/85 inherits this timer, but it adds more features on top of
+    having a ATTiny15 backwards compatibility mode. Like the 10-bit counter on the
+    ATMegaXU4 series, the timer subsystem should go in its own file, and not here.
 
     16-bit register accesses:
     -----------------------------------------------------------------
@@ -147,28 +142,19 @@ avr8_base_timer_device::avr8_base_timer_device(const machine_config &mconfig, de
     device_t(mconfig, type, tag, owner, clock),
     m_upstream_prescaler(*this, "syncprescaler"),
     m_int_cbs(*this),
-    m_oc_a_en_w_cb(*this),
-    m_oc_b_en_w_cb(*this),
-    m_oc_c_en_w_cb(*this),
-    m_oc_a_w_cb(*this),
-    m_oc_b_w_cb(*this),
-    m_oc_c_w_cb(*this),
-    m_oc_a_toggle_w_cb(*this),
-    m_oc_b_toggle_w_cb(*this),
-    m_oc_c_toggle_w_cb(*this)
+    m_oc_en_w_cbs(*this),
+    m_oc_w_cbs(*this),
+    m_oc_toggle_w_cbs(*this)
 {}
 
 void avr8_base_timer_device::device_start()
 {
     save_item(NAME(m_tcnt));
-    save_item(NAME(m_ocr_a));
-    save_item(NAME(m_ocr_b));
-    save_item(NAME(m_ocr_c));
+    save_item(NAME(m_ocr_buf));
+    save_item(NAME(m_ocr));
+    save_item(NAME(m_com));
     save_item(NAME(m_wgm));
     save_item(NAME(m_cs));
-    save_item(NAME(m_com_a));
-    save_item(NAME(m_com_b));
-    save_item(NAME(m_com_c));
     save_item(NAME(m_int));
     save_item(NAME(m_int_en));
     save_item(NAME(m_prtim));
@@ -186,14 +172,16 @@ void avr8_base_timer_device::device_start()
 void avr8_base_timer_device::device_reset()
 {
     m_tcnt = 0;
-    m_ocr_a = 0;
-    m_ocr_b = 0;
-    m_ocr_c = 0;
     m_wgm = 0;
     m_cs = 0;
-    m_com_a = AVR8_TIMER_COM_NORMAL;
-    m_com_b = AVR8_TIMER_COM_NORMAL;
-    m_com_c = AVR8_TIMER_COM_NORMAL;
+
+    for (int i = 0; i < AVR8_TIMER_CMPCHANNEL_MAX; i++)
+    {
+        m_ocr[i] = 0;
+        m_ocr_buf[i] = 0;
+        m_com[i] = AVR8_TIMER_COM_NORMAL;
+        // GPIO driver should reset its output states for us
+    }
 
     for (int i = 0; i < AVR8_TIMER_INTCHANNEL_MAX; i++)
     {
@@ -262,21 +250,6 @@ void avr8_base_timer_device::clear_int()
     if (m_int_en[Channel] && !m_int_cbs[Channel].isunset()) m_int_cbs[Channel](0);
 }
 
-void avr8_base_timer_device::com_a_w(uint8_t data)
-{
-    fatalerror("com_a_w unimplemented. Timer doesn't support it, or you found a bug.\n");
-}
-    
-void avr8_base_timer_device::com_b_w(uint8_t data)
-{
-    fatalerror("com_b_w unimplemented. Timer doesn't support it, or you found a bug.\n");
-}
-
-void avr8_base_timer_device::com_c_w(uint8_t data)
-{
-    fatalerror("com_c_w unimplemented. Timer doesn't support it, or you found a bug.\n");
-}
-
 void avr8_base_timer_device::clk_io_w(uint8_t data)
 {
     if (!m_clk_io && data != 0 && !is_async_mode())
@@ -300,88 +273,59 @@ void avr8_base_timer_device::advance_normal()
     m_tcnt = next_count();
 }
 
-void avr8_base_timer_device::update_oc_a_nonpwm_generic()
+template <uint8_t Channel,
+            uint8_t SetState,
+            uint8_t ClearState,
+            bool Toggling>
+void avr8_base_timer_device::update_oc()
 {
-    if (m_oc_a_w_cb.isunset() || m_oc_a_toggle_w_cb.isunset())
+    if (m_oc_w_cbs[Channel].isunset() || m_oc_toggle_w_cbs[Channel].isunset())
     {
         return;
     }
 
-    switch (m_com_a)
+    switch (m_com[Channel])
     {
         case AVR8_TIMER_COM_TOGGLE:
-            m_oc_a_toggle_w_cb(1);
+            if (Toggling) m_oc_toggle_w_cbs[Channel](1);
             break;
 
         case AVR8_TIMER_COM_CLEAR:
-            m_oc_a_w_cb(0);
+            m_oc_w_cbs[Channel](ClearState);
             break;
         
         case AVR8_TIMER_COM_SET:
-            m_oc_a_w_cb(1);
+            m_oc_w_cbs[Channel](SetState);
             break;
 
         case AVR8_TIMER_COM_NORMAL:
         default:
-            // does nothing; OCxA pin disconnected
+            // does nothing; pin disconnected
             break;
     }
 }
 
-void avr8_base_timer_device::update_oc_b_nonpwm_generic()
+template <uint8_t Channel>
+void avr8_base_timer_device::com_w(uint8_t data)
 {
-    if (m_oc_b_w_cb.isunset() || m_oc_b_toggle_w_cb.isunset())
-    {
-        return;
-    }
+    m_com[Channel] = BIT(data, 0, 2); // COM always a value between 0-3
 
-    switch (m_com_b)
-    {
-        case AVR8_TIMER_COM_TOGGLE:
-            m_oc_b_toggle_w_cb(1);
-            break;
-
-        case AVR8_TIMER_COM_CLEAR:
-            m_oc_b_w_cb(0);
-            break;
-        
-        case AVR8_TIMER_COM_SET:
-            m_oc_b_w_cb(1);
-            break;
-
-        case AVR8_TIMER_COM_NORMAL:
-        default:
-            // does nothing; OCxA pin disconnected
-            break;
-    }
+    // default is to assume the output is enabled if COM changes to anything
+    // other than AVR8_TIMER_COM_NORMAL.
+    // this will not always be the case; subclasses have to catch that situation.
+    m_oc_en_w_cbs[Channel](m_com[Channel] != AVR8_TIMER_COM_NORMAL && com_mode_allows_output(Channel));
 }
 
-void avr8_base_timer_device::update_oc_c_nonpwm_generic()
+template void avr8_base_timer_device::com_w<AVR8_TIMER_CMPCHANNEL_OC_A>(uint8_t);
+template void avr8_base_timer_device::com_w<AVR8_TIMER_CMPCHANNEL_OC_B>(uint8_t);
+template void avr8_base_timer_device::com_w<AVR8_TIMER_CMPCHANNEL_OC_C>(uint8_t);
+
+void avr8_base_timer_device::sample_t_input()
 {
-    if (m_oc_c_w_cb.isunset() || m_oc_c_toggle_w_cb.isunset())
-    {
-        return;
-    }
+    if (m_t == m_t_last) return;
 
-    switch (m_com_a)
-    {
-        case AVR8_TIMER_COM_TOGGLE:
-            m_oc_c_toggle_w_cb(1);
-            break;
-
-        case AVR8_TIMER_COM_CLEAR:
-            m_oc_c_w_cb(0);
-            break;
-        
-        case AVR8_TIMER_COM_SET:
-            m_oc_c_w_cb(1);
-            break;
-
-        case AVR8_TIMER_COM_NORMAL:
-        default:
-            // does nothing; OCxA pin disconnected
-            break;
-    }
+    m_t_rising = !m_t_last && m_t;
+    m_t_falling = m_t_last && !m_t;
 }
 
 ///////////////////////////////////////////////////////////////
@@ -537,20 +481,19 @@ void avr8_generic_8bit_timer_device::install_wgm_callbacks()
 }
 
 // TOP = MAX
-// Update of OCRx is IMMEDIATE
 // TOV flag set on MAX (so if OCRA is hit, no interrupt is generated)
 void avr8_generic_8bit_timer_device::advance_normal()
 {
     if (is_compare_a())
     {
         raise_ocf_a();
-        update_oc_a_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_A>();
     }
 
     if (is_compare_b())
     {
         raise_ocf_b();
-        update_oc_b_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_B>();
     }
 
     avr8_base_timer_device::advance_normal();
@@ -565,42 +508,42 @@ void avr8_generic_8bit_timer_device::advance_pwm()
     uint8_t next_count_value = m_dual_slope_counting_down ? prev_count() : next_count();
     uint8_t count_limit = m_dual_slope_counting_down ? 0 : max_count();
 
-    if (next_count_value == m_ocr_a)
+    if (is_compare_a())
     {
-        if (m_ocr_a != max_count())
+        if (m_ocr[AVR8_TIMER_CMPCHANNEL_OC_A] != max_count())
         {
             raise_ocf_a();
         }
 
         if (m_dual_slope_counting_down)
         {
-            update_oc0a_pwm_on_downcount_compare();
+            update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_A>();
         }
         else
         {
-            update_oc0a_pwm_on_upcount_compare();
+            update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_A>();
         }
     }
 
-    if (next_count_value == m_ocr_b)
+    if (is_compare_b())
     {
         if (m_dual_slope_counting_down)
         {
-            update_oc0b_pwm_on_downcount_compare();
+            update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_B>();
         }
         else
         {
-            update_oc0b_pwm_on_upcount_compare();
+            update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_B>();
         }
+    }
+
+    if (is_min_count())
+    {
+        raise_tov();
     }
 
     if (next_count_value == count_limit)
     {
-        if (m_dual_slope_counting_down)
-        {
-            raise_tov();
-        }
-
         m_dual_slope_counting_down = !m_dual_slope_counting_down;
     }
 
@@ -616,20 +559,21 @@ void avr8_generic_8bit_timer_device::advance_ctc()
     if (is_compare_a())
     {
         raise_ocf_a();
-        update_oc_a_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_A>();
         forcing_wrap = true;
     }
 
     if (is_compare_b())
     {
         raise_ocf_b();
-        update_oc_b_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_B>();
     }
 
     if (will_next_count_overflow())
     {
         raise_tov();
     }
+
     m_tcnt = forcing_wrap ? 0 : next_count();
 }
 
@@ -640,54 +584,53 @@ void avr8_generic_8bit_timer_device::advance_ctc()
 void avr8_generic_8bit_timer_device::advance_pwm_ocr_a()
 {
     uint8_t next_count_value = m_dual_slope_counting_down ? prev_count() : next_count();
-    // uint8_t count_limit = m_dual_slope_counting_down ? 0 : m_ocr_a;
 
-    if (next_count_value == m_ocr_a)
+    if (is_compare_a())
     {
         // TODO: confirm this; datasheet phrasing is a bit odd
-        if (m_ocr_a != max_count())
+        if (m_ocr[AVR8_TIMER_CMPCHANNEL_OC_A] != max_count())
         {
             raise_ocf_a();
         }
 
+        // OCR mode has WGM02 = 1; so toggling is allowed
         if (m_dual_slope_counting_down)
         {
-            update_oc0a_pwm_on_downcount_compare();
+            update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_A>();
         }
         else
         {
-            // timer hitting TOP on this tick
-            update_oc0a_pwm_on_upcount_compare();
-            m_dual_slope_counting_down = !m_dual_slope_counting_down;
+            update_oc_generic_inverse<AVR8_TIMER_CMPCHANNEL_OC_A>();
         }
     }
 
-    if (next_count_value == m_ocr_b)
+    if (is_compare_b())
     {
         // TODO: confirm this; datasheet phrasing is a bit odd
-        if (m_ocr_b != max_count())
+        if (m_ocr[AVR8_TIMER_CMPCHANNEL_OC_B] != max_count())
         {
             raise_ocf_b();
         }
 
+        // COMxB of 0b01 is reserved/illegal, so do not allow toggling in this mode
         if (m_dual_slope_counting_down)
         {
-            update_oc0b_pwm_on_downcount_compare();
+            update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_A>();
         }
         else
         {
-            update_oc0b_pwm_on_upcount_compare();
+            update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_A>();
         }
     }
 
     if (m_dual_slope_counting_down && next_count_value == 0)
     {
-        if (m_dual_slope_counting_down)
-        {
-            raise_tov();
-        }
-
         m_dual_slope_counting_down = !m_dual_slope_counting_down;
+    }
+    else if (is_min_count())
+    {
+        // TOV raised at BOTTOM
+        raise_tov();
     }
 
     m_tcnt = next_count_value;
@@ -695,25 +638,40 @@ void avr8_generic_8bit_timer_device::advance_pwm_ocr_a()
 
 // TOP = MAX
 // Update of OCRx at BOTTOM
-// TOV flag set on MAX (so if OCRA is hit, no interrupt is generated)
+// TOV flag set on MAX
 void avr8_generic_8bit_timer_device::advance_fast_pwm()
 {
-	if (will_compare_a())
+    // special case: if OCRxx == TOP, then the compare match is ignored.
+    // See https://ww1.microchip.com/downloads/en/DeviceDoc/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061A.pdf
+    // Figure 15-6 
+	if (is_compare_a() && m_ocr[AVR8_TIMER_CMPCHANNEL_OC_A] != max_count())
 	{
-        update_oc0a_fast_pwm_on_compare();
+        raise_ocf_a();
+
+        // toggle is disabled in this mode (WGMx2 is 0)
+        update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_A>();
 	}
 	
-    if (will_compare_b())
+    // same as above
+    if (is_compare_b() && m_ocr[AVR8_TIMER_CMPCHANNEL_OC_B] != max_count())
 	{
-        update_oc0b_fast_pwm_on_compare();
+        raise_ocf_b();
+
+        // OCxB is set to normal value on compare; COMxB of 0b01 is reserved/illegal
+        update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_B>();
 	}
 
 	if (will_next_count_overflow())
 	{
 		raise_tov();
-        update_oc0a_fast_pwm_on_top();
-        update_oc0b_fast_pwm_on_top();
 	}
+
+    if (is_min_count())
+    {
+        // OCxB is set to inverse on BOTTOM; COMxB of 0b01 is reserved/illegal
+        update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_A>();
+        update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_B>();
+    }
     
     m_tcnt = next_count();
 }
@@ -723,196 +681,37 @@ void avr8_generic_8bit_timer_device::advance_fast_pwm()
 // TOV flag set on TOP (so, when OCRA is hit)
 void avr8_generic_8bit_timer_device::advance_fast_pwm_ocr_a()
 {
-    if (will_compare_a())
+    bool hit_top = false;
+    if (is_compare_a())
     {
-        // timer hitting TOP on this tick
-        update_oc0a_fast_pwm_on_top();
-        update_oc0b_fast_pwm_on_top();
+        update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_A>();
+        hit_top = true;    
     }
-    else if (will_compare_b())
+
+    if (is_compare_b())
     {
-        update_oc0b_fast_pwm_on_compare();
+        update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_B>();
     }
     
-    if (m_tcnt >= m_ocr_a)
+    if (will_next_count_overflow())
     {
         raise_tov();
-        m_tcnt = 0;
-        return;
     }
 
-    m_tcnt = next_count();
-}
-
-void avr8_generic_8bit_timer_device::update_oc0a_fast_pwm_on_compare()
-{
-    switch (m_com_a)
+    if (is_min_count())
     {
-        case AVR8_TIMER_COM_TOGGLE:
-            // this is how the datasheets describe this behavior, so I'm replicating that here.
-            if (BIT(m_wgm, 2)) m_oc_a_toggle_w_cb(1);
-            break;
+        update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_A>();
+        update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_B>();
+    }
 
-        case AVR8_TIMER_COM_CLEAR:
-            m_oc_b_w_cb(0);
-            break;
-
-        case AVR8_TIMER_COM_SET:
-            m_oc_b_w_cb(1);
-            break;
-        
-        case AVR8_TIMER_COM_NORMAL:
-        default:
-            return;
-    };
-}
-
-void avr8_generic_8bit_timer_device::update_oc0b_fast_pwm_on_compare()
-{
-    switch (m_com_b)
-    {
-        case AVR8_TIMER_COM_TOGGLE:
-            // marked as reserved on 16u4/32u4, same on 328
-            logerror("%s: com_b set to toggle in fast pwm mode\n", machine().describe_context());
-            break;
-
-        case AVR8_TIMER_COM_CLEAR:
-            m_oc_b_w_cb(0);
-            break;
-
-        case AVR8_TIMER_COM_SET:
-            m_oc_b_w_cb(1);
-            break;
-        
-        case AVR8_TIMER_COM_NORMAL:
-        default:
-            return;
-    };
-}
-
-void avr8_generic_8bit_timer_device::update_oc0a_fast_pwm_on_top()
-{
-    switch (m_com_a)
-    {
-        case AVR8_TIMER_COM_CLEAR:
-            m_oc_a_w_cb(1);
-            break;
-
-        case AVR8_TIMER_COM_SET:
-            m_oc_a_w_cb(0);
-            break;
-        
-        case AVR8_TIMER_COM_TOGGLE:
-        case AVR8_TIMER_COM_NORMAL:
-        default:
-            return;
-    };
-}
-
-void avr8_generic_8bit_timer_device::update_oc0b_fast_pwm_on_top()
-{
-    switch (m_com_b)
-    {
-        case AVR8_TIMER_COM_CLEAR:
-            m_oc_b_w_cb(1);
-            break;
-
-        case AVR8_TIMER_COM_SET:
-            m_oc_b_w_cb(0);
-            break;
-        
-        case AVR8_TIMER_COM_TOGGLE:
-        case AVR8_TIMER_COM_NORMAL:
-        default:
-            return;
-    };
-}
-
-void avr8_generic_8bit_timer_device::update_oc0a_pwm_on_upcount_compare()
-{
-    switch (m_com_a)
-    {
-        case AVR8_TIMER_COM_CLEAR:
-            m_oc_a_w_cb(0);
-            break;
-
-        case AVR8_TIMER_COM_SET:
-            m_oc_a_w_cb(1);
-            break;
-        
-        case AVR8_TIMER_COM_TOGGLE:
-            break;
-
-        case AVR8_TIMER_COM_NORMAL:
-        default:
-            return;
-    };
-}
-
-void avr8_generic_8bit_timer_device::update_oc0a_pwm_on_downcount_compare()
-{
-    switch (m_com_a)
-    {
-        case AVR8_TIMER_COM_CLEAR:
-            m_oc_a_w_cb(1);
-            break;
-
-        case AVR8_TIMER_COM_SET:
-            m_oc_a_w_cb(0);
-            break;
-        
-        case AVR8_TIMER_COM_TOGGLE:
-            break;
-            
-        case AVR8_TIMER_COM_NORMAL:
-        default:
-            return;
-    };
-}
-
-void avr8_generic_8bit_timer_device::update_oc0b_pwm_on_upcount_compare()
-{
-    switch (m_com_b)
-    {
-        case AVR8_TIMER_COM_CLEAR:
-            break;
-
-        case AVR8_TIMER_COM_SET:
-            break;
-        
-        case AVR8_TIMER_COM_TOGGLE:
-            break;
-            
-        case AVR8_TIMER_COM_NORMAL:
-        default:
-            return;
-    };
-}
-
-void avr8_generic_8bit_timer_device::update_oc0b_pwm_on_downcount_compare()
-{
-    switch (m_com_b)
-    {
-        case AVR8_TIMER_COM_CLEAR:
-            break;
-
-        case AVR8_TIMER_COM_SET:
-            break;
-        
-        case AVR8_TIMER_COM_TOGGLE:
-            break;
-            
-        case AVR8_TIMER_COM_NORMAL:
-        default:
-            return;
-    };
+    m_tcnt = hit_top ? 0 : next_count();
 }
 
 void avr8_generic_8bit_timer_device::force_oc0a()
 {
     if (m_wgm == GENERIC_8BIT_TIMER_WGM_NORMAL || m_wgm == GENERIC_8BIT_TIMER_WGM_CTC)
     {
-        update_oc_a_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_A>();
     }
 }
 
@@ -920,68 +719,46 @@ void avr8_generic_8bit_timer_device::force_oc0b()
 {
     if (m_wgm == GENERIC_8BIT_TIMER_WGM_NORMAL || m_wgm == GENERIC_8BIT_TIMER_WGM_CTC)
     {
-        update_oc_b_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_B>();
     }
 }
 
 void avr8_generic_8bit_timer_device::wgm_w(uint8_t data)
 {
     if (m_wgm == data) return;
+
     logerror("%s: switch wgm to %02x\n", machine().describe_context(), data);
     m_wgm = data;
+
+    // output lines will switch when WGM switches, so rewrite COM modes
+    com_w<AVR8_TIMER_CMPCHANNEL_OC_A>(com_r<AVR8_TIMER_CMPCHANNEL_OC_A>());
+    com_w<AVR8_TIMER_CMPCHANNEL_OC_B>(com_r<AVR8_TIMER_CMPCHANNEL_OC_B>());
 }
 
-
-void avr8_generic_8bit_timer_device::com_a_w(uint8_t data)
+bool avr8_generic_8bit_timer_device::should_reload_ocrs()
 {
-    // COMx changes take effect immediately
-    m_com_a = BIT(data, 0, 2);
-
-    if (m_com_a == AVR8_TIMER_COM_NORMAL)
+    // This behavior should be true for the generic Timer 0 and the async Timer 2.
+    // See: https://ww1.microchip.com/downloads/en/DeviceDoc/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061A.pdf
+    // Table 15-8 (Timer 0), Table 18-8 (Timer 2)
+    switch (m_wgm)
     {
-        if (!m_oc_a_en_w_cb.isunset()) m_oc_a_en_w_cb(0);
-        return;
+        case GENERIC_8BIT_TIMER_WGM_NORMAL:
+        case GENERIC_8BIT_TIMER_WGM_CTC:
+            return true; // updates immediately
+
+        case GENERIC_8BIT_TIMER_WGM_PWM:
+            return (m_tcnt & max_count()) == max_count(); // updates at TOP (= 0xff)
+
+        case GENERIC_8BIT_TIMER_WGM_PWM_OCR_A:
+            return (m_tcnt & max_count()) == m_ocr[AVR8_TIMER_CMPCHANNEL_OC_A]; // updates at TOP (= OCR A)
+
+        case GENERIC_8BIT_TIMER_WGM_FAST_PWM:
+        case GENERIC_8BIT_TIMER_WGM_FAST_PWM_OCR_A:
+            return (m_tcnt & max_count()) == 0; // updates at BOTTOM
+
+        default:
+            return false;
     }
-
-    // OC0A only changes upon compare; whatever I/O is latched
-    // downstream right now will (usually) not change.
-    if (!m_oc_a_en_w_cb.isunset()) m_oc_a_en_w_cb(1);
-}
-    
-void avr8_generic_8bit_timer_device::com_b_w(uint8_t data)
-{
-    // COMx changes take effect immediately
-    m_com_b = BIT(data, 0, 2);
-
-    if (m_com_b == AVR8_TIMER_COM_NORMAL)
-    {
-        if (!m_oc_b_en_w_cb.isunset()) m_oc_b_en_w_cb(0);
-        return;
-    }
-
-    if (!m_oc_b_en_w_cb.isunset()) m_oc_b_en_w_cb(1);
-    
-    // TODO: see above
-}
-
-void avr8_generic_8bit_timer_device::ocr_a_w(uint8_t data)
-{
-    m_ocr_a_buf = data;
-}
-
-uint8_t avr8_generic_8bit_timer_device::ocr_a_r()
-{
-    return m_ocr_a_buf;
-}
-
-void avr8_generic_8bit_timer_device::ocr_b_w(uint8_t data)
-{
-    m_ocr_b_buf = data;
-}
-
-uint8_t avr8_generic_8bit_timer_device::ocr_b_r()
-{
-    return m_ocr_b_buf;
 }
 
 ///////////////////////////////////////////////////////////////
@@ -1008,15 +785,7 @@ void avr8_generic_t0_timer_device::tick()
 {
     if (m_prtim) return;
 
-    // Tx pin is sampled on every I/O clock
-    // TODO: where to put this? check async timer docs
-    bool t_rising = false, t_falling = false;
-    if (m_t != m_t_last)
-    {
-        t_rising = !m_t_last && m_t;
-        t_falling = m_t_last && !m_t;
-        m_t = m_t_last;
-    }
+    sample_t_input();
 
     if (m_cs == GENERIC_TIMER0_CS_DISABLED)
     {
@@ -1028,12 +797,16 @@ void avr8_generic_t0_timer_device::tick()
     if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV64 && !m_upstream_prescaler->clkdiv_r<64>()) return;
     if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV256 && !m_upstream_prescaler->clkdiv_r<256>()) return;
     if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV1024 && !m_upstream_prescaler->clkdiv_r<1024>()) return;
-    if (m_cs == GENERIC_TIMER0_CS_T0_FALL && !t_falling) return;
-    if (m_cs == GENERIC_TIMER0_CS_T0_RISE && !t_rising) return;
+    if (m_cs == GENERIC_TIMER0_CS_T0_FALL && !m_t_falling) return;
+    if (m_cs == GENERIC_TIMER0_CS_T0_RISE && !m_t_rising) return;
     // GENERIC_TIMER0_CS_DIRECT = just fall through
 
-    LOGMASKED(LOG_TIMER0_TICK, "%s: running wgm callback %d\n", machine().describe_context(), m_wgm);
+    if (should_reload_ocrs())
+    {
+        reload_ocrs();
+    }
 
+    LOGMASKED(LOG_TIMER0_TICK, "%s: running wgm callback %d\n", machine().describe_context(), m_wgm);
     m_wgm_cbs[m_wgm]();
     m_no_compare_this_cycle = false; // because the current timer cycle has ended
 }
@@ -1054,6 +827,7 @@ void avr8_generic_t0_timer_device::tcnt_w(uint8_t data)
     m_tcnt = data;
     m_no_compare_this_cycle = true;
 }
+
 
 void avr8_megaavr_timer_0_device::tccr_b_w(uint8_t data)
 {
@@ -1123,14 +897,8 @@ void avr8_generic_t1_timer_device::tick()
     if (m_prtim) return;
 
     // Tx pin is sampled on every I/O clock, so check that first
-    bool t_rising = false, t_falling = false;
-    if (m_t != m_t_last)
-    {
-        t_rising = !m_t_last && m_t;
-        t_falling = m_t_last && !m_t;
-        m_t = m_t_last;
-    }
-
+    sample_t_input();
+    
     if (m_cs == GENERIC_TIMER1_CS_DISABLED)
     {
         // LOGMASKED(LOG_TIMER1_TICK, "%s: timer is disabled (m_cs == GENERIC_TIMER1_CS_DISABLED), doing nothing.\n", machine().describe_context());
@@ -1141,9 +909,14 @@ void avr8_generic_t1_timer_device::tick()
     if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV64 && !m_upstream_prescaler->clkdiv_r<64>()) return;
     if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV256 && !m_upstream_prescaler->clkdiv_r<256>()) return;
     if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV1024 && !m_upstream_prescaler->clkdiv_r<1024>()) return;
-    if (m_cs == GENERIC_TIMER1_CS_T1_FALL && !t_falling) return;
-    if (m_cs == GENERIC_TIMER1_CS_T1_RISE && !t_rising) return;
+    if (m_cs == GENERIC_TIMER1_CS_T1_FALL && !m_t_falling) return;
+    if (m_cs == GENERIC_TIMER1_CS_T1_RISE && !m_t_rising) return;
     // GENERIC_TIMER1_CS_DIRECT = just fall through
+
+    if (should_reload_ocrs())
+    {
+        reload_ocrs();
+    }
 
     // LOGMASKED(LOG_TIMER1_TICK, "%s: running wgm callback %d\n", machine().describe_context(), m_wgm);
 
@@ -1157,23 +930,22 @@ void avr8_generic_t1_timer_device::advance_normal()
     // this is basically the same as timer 0's advance_normal(), but 16-bit.
     // underlying framework will handle the wraparound for us,
     // but we still have to do compares ourself.
-
     if (is_compare_a())
     {
         raise_ocf_a();
-        update_oc_a_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_A>();
     }
 
     if (is_compare_b())
     {
         raise_ocf_b();
-        update_oc_b_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_B>();
     }
 
     if (m_ocr_c_enabled && is_compare_c())
     {
         raise_ocf_c();
-        update_oc_c_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_C>();
     }
 
     // fall through to normal case, which will catch the wraparound and set TOV1
@@ -1184,10 +956,10 @@ void avr8_generic_t1_timer_device::advance_pwm_common(uint16_t top)
 { 
     uint8_t next_count_value = m_dual_slope_counting_down ? prev_count() : next_count();
    
-    if (next_count_value == m_ocr_a)
+    if (is_compare_a())
     {
         // TODO: confirm this; datasheet phrasing is a bit odd
-        if (m_ocr_a != max_count())
+        if (m_ocr[AVR8_TIMER_CMPCHANNEL_OC_A] != max_count())
         {
             raise_ocf_a();
         }
@@ -1198,45 +970,44 @@ void avr8_generic_t1_timer_device::advance_pwm_common(uint16_t top)
     if (!m_dual_slope_counting_down && next_count_value == top)
     {
         m_dual_slope_counting_down = !m_dual_slope_counting_down;
-
-        // OCRxA is reloaded at TOP for all phase-correct PWM modes.
-        // fast PWM modes update at BOTTOM, phase/frequency correct PWM update at BOTTOM.
-        m_ocr_a = m_ocr_a_buf;
     }
 
-    if (next_count_value == m_ocr_b)
+    if (is_compare_b())
     {
         // TODO: confirm this; datasheet phrasing is a bit odd
-        if (m_ocr_b != max_count())
+        if (m_ocr[AVR8_TIMER_CMPCHANNEL_OC_B] != max_count())
         {
             raise_ocf_b();
         }
 
         if (m_dual_slope_counting_down)
-            update_oc_b_pwm_on_downcount_compare();
+            update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_C>();
         else
-            update_oc_b_pwm_on_upcount_compare();
+            update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_C>();
     }
 
-    if (m_ocr_c_enabled && next_count_value == m_ocr_c)
+    if (m_ocr_c_enabled && is_compare_c())
     {
         // TODO: confirm this; datasheet phrasing is a bit odd
-        if (m_ocr_c != max_count())
+        if (m_ocr[AVR8_TIMER_CMPCHANNEL_OC_C] != max_count())
         {
             raise_ocf_c();
         }
 
         if (m_dual_slope_counting_down)
-            update_oc_c_pwm_on_downcount_compare();
+            update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_C>();
         else
-            update_oc_c_pwm_on_upcount_compare();
+            update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_C>();
     }
 
     if (m_dual_slope_counting_down && next_count_value == 0)
     {
-        // BOTTOM hit
-        raise_tov();
         m_dual_slope_counting_down = !m_dual_slope_counting_down;
+    }
+    else if (is_min_count())
+    {
+        // BOTTOM hit; raise interrupt
+        raise_tov();
     }
 
     m_tcnt = next_count_value;
@@ -1265,7 +1036,6 @@ void avr8_generic_t1_timer_device::advance_ctc_ocr_a()
     {
         // LOGMASKED(LOG_TIMER1_TICK, "%s: timer1 WGM1 CTC_OCR, TOP, new count %04x, OCR1A/B %04x/%04x, ICR1 %04x\n", machine().describe_context(), timer1_count, m_ocr1[AVR8_REG_A], m_ocr1[AVR8_REG_B], icr1);
         raise_tov();
-
         // will_increment left true because next_count() below will wrap the timer
     }
 
@@ -1278,7 +1048,7 @@ void avr8_generic_t1_timer_device::advance_ctc_ocr_a()
         will_increment = false;
 
         raise_ocf_a();
-        update_oc_a_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_A>();
     }
     else if (m_tcnt == 0)
     {
@@ -1289,13 +1059,13 @@ void avr8_generic_t1_timer_device::advance_ctc_ocr_a()
     if (is_compare_b())
     {
         raise_ocf_b();
-        update_oc_b_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_B>();
     }
     
     if (m_ocr_c_enabled && is_compare_c())
     {
         raise_ocf_c();
-        update_oc_c_nonpwm_generic();
+        update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_C>();
     }
 
     if (will_increment) m_tcnt = next_count();
@@ -1303,14 +1073,6 @@ void avr8_generic_t1_timer_device::advance_ctc_ocr_a()
 
 void avr8_generic_t1_timer_device::advance_fast_pwm_ocr_a()
 {
-    if (m_tcnt == 0)
-    {
-        // OCR values reload from buffers at BOTTOM in this mode
-        m_ocr_a = m_ocr_a_buf;
-        m_ocr_b = m_ocr_b_buf;
-        m_ocr_c = m_ocr_c_buf;
-    }
-
     if (is_compare_a())
     {
         raise_tov();
@@ -1349,183 +1111,43 @@ void avr8_generic_t1_timer_device::advance_fast_pwm_ocr_a()
     m_tcnt = next_count();
 }
 
-void avr8_generic_t1_timer_device::update_oc_a_pwm_on_downcount_compare()
+bool avr8_generic_t1_timer_device::com_mode_allows_output(uint8_t channel)
 {
-    switch (m_com_a)
+    // SET/CLEAR modes get their outputs enabled so just return in that case
+    if (m_com[channel] == AVR8_TIMER_COM_SET || m_com[channel] == AVR8_TIMER_COM_CLEAR)
     {
-        case AVR8_TIMER_COM_TOGGLE:
-            // TODO: does this toggle in downcount?
-            if ((m_wgm == GENERIC_TIMER1_WGM_PWM_PFC_OCR1A || m_wgm == GENERIC_TIMER1_WGM_PWM_OCR1A))
-                if (!m_oc_a_toggle_w_cb.isunset()) m_oc_a_toggle_w_cb(1);
-            break;
-
-        case AVR8_TIMER_COM_SET:
-            if (!m_oc_a_w_cb.isunset()) m_oc_a_w_cb(1); // set counting down, clear counting up
-            break;
-        
-        case AVR8_TIMER_COM_CLEAR:
-            if (!m_oc_a_w_cb.isunset()) m_oc_a_w_cb(0); // clear counting down, set counting up
-            break;
-        
-        default:
-            // OC1A disabled in normal mode
-            break;
-    }
-}
-
-void avr8_generic_t1_timer_device::update_oc_a_pwm_on_upcount_compare()
-{
-    switch (m_com_a)
-    {
-        case AVR8_TIMER_COM_TOGGLE:
-            // per x8 series datasheet: toggles only in WGM modes 9 or 11.
-            // disconnected in all other WGM modes.
-            if ((m_wgm == GENERIC_TIMER1_WGM_PWM_PFC_OCR1A || m_wgm == GENERIC_TIMER1_WGM_PWM_OCR1A))
-                if (!m_oc_a_toggle_w_cb.isunset()) m_oc_a_toggle_w_cb(1);
-            break;
-
-        case AVR8_TIMER_COM_SET:
-            if (!m_oc_a_w_cb.isunset()) m_oc_a_w_cb(0); // set counting down, clear counting up
-            break;
-        
-        case AVR8_TIMER_COM_CLEAR:
-            if (!m_oc_a_w_cb.isunset()) m_oc_a_w_cb(1); // clear counting down, set counting up
-            break;
-        
-        default:
-            // OC1A disabled in normal mode
-            break;
-    }
-}
-
-void avr8_generic_t1_timer_device::update_oc_b_pwm_on_downcount_compare()
-{
-    switch (m_com_b)
-    {
-        case AVR8_TIMER_COM_SET:
-            if (!m_oc_b_w_cb.isunset()) m_oc_b_w_cb(1);
-            break;
-        
-        case AVR8_TIMER_COM_CLEAR:
-            if (!m_oc_b_w_cb.isunset()) m_oc_b_w_cb(0);
-            break;
-        
-        default:
-            // OC1B disabled in toggle or normal modes
-            break;
-    }
-}
-
-void avr8_generic_t1_timer_device::update_oc_b_pwm_on_upcount_compare()
-{
-    switch (m_com_b)
-    {
-        case AVR8_TIMER_COM_SET:
-            if (!m_oc_b_w_cb.isunset()) m_oc_b_w_cb(0);
-            break;
-        
-        case AVR8_TIMER_COM_CLEAR:
-            if (!m_oc_b_w_cb.isunset()) m_oc_b_w_cb(1);
-            break;
-        
-        default:
-            // OC1B disabled in toggle or normal modes
-            break;
-    }
-}
-
-void avr8_generic_t1_timer_device::update_oc_c_pwm_on_downcount_compare()
-{
-    // per the atmegax0 (and 1281/2561) datasheet,
-    // behavior here is the same as OCxB
-    switch (m_com_c)
-    {
-        case AVR8_TIMER_COM_SET:
-            if (!m_oc_c_w_cb.isunset()) m_oc_c_w_cb(1);
-            break;
-        
-        case AVR8_TIMER_COM_CLEAR:
-            if (!m_oc_c_w_cb.isunset()) m_oc_c_w_cb(0);
-            break;
-        
-        default:
-            // OC1C disabled in toggle or normal modes
-            break;
-    }
-}
-
-void avr8_generic_t1_timer_device::update_oc_c_pwm_on_upcount_compare()
-{
-    // per the atmegax0 (and 1281/2561) datasheet,
-    // behavior here is the same as OCxB
-    switch (m_com_c)
-    {
-        case AVR8_TIMER_COM_SET:
-            if (!m_oc_c_w_cb.isunset()) m_oc_b_w_cb(0);
-            break;
-        
-        case AVR8_TIMER_COM_CLEAR:
-            if (!m_oc_c_w_cb.isunset()) m_oc_b_w_cb(1);
-            break;
-        
-        default:
-            // OC1C disabled in toggle or normal modes
-            break;
-    }
-}
-
-void avr8_generic_t1_timer_device::com_a_w(uint8_t data)
-{
-    // COMx changes take effect immediately
-    m_com_a = BIT(data, 0, 2);
-
-    if (m_com_a == AVR8_TIMER_COM_NORMAL)
-    {
-        if (!m_oc_a_en_w_cb.isunset()) m_oc_a_en_w_cb(0);
-        return;
+        return true;
     }
 
-    if (m_com_a == AVR8_TIMER_COM_TOGGLE)
+    // Outputs will obviously be disabled in normal mode
+    if (m_com[channel] == AVR8_TIMER_COM_NORMAL)
     {
-        // In toggle mode, OC1A will output only when WGM = 9, 11, 14, 15;
-        // at all other times it is disconnected
-        if (m_wgm == GENERIC_TIMER1_WGM_PWM_PFC_OCR1A ||
-            m_wgm == GENERIC_TIMER1_WGM_PWM_OCR1A ||
-            m_wgm == GENERIC_TIMER1_WGM_FAST_PWM_ICR1 ||
-            m_wgm == GENERIC_TIMER1_WGM_FAST_PWM_OCRA)
+        return false;
+    }
+
+    // In toggle mode, OCxA will output only when WGM = 9, 11, 14, 15;
+    // at all other times it is disconnected
+    if (channel == AVR8_TIMER_CMPCHANNEL_OC_A)
+    {
+        if (!(m_wgm == GENERIC_TIMER1_WGM_PWM_PFC_OCR1A ||
+              m_wgm == GENERIC_TIMER1_WGM_PWM_OCR1A ||
+              m_wgm == GENERIC_TIMER1_WGM_FAST_PWM_ICR1 ||
+              m_wgm == GENERIC_TIMER1_WGM_FAST_PWM_OCRA))
         {
-            if (!m_oc_a_en_w_cb.isunset()) m_oc_a_en_w_cb(0);
-            return;
+            logerror("%s: attempt to switch 16-bit timer COMxA to TOGGLE in a mode that doesn't support it (m_wgm=0x%02x)\n",
+                machine().describe_context(),
+                m_wgm);
+            return false;
         }
+
+        return true;
     }
 
-    if (!m_oc_a_en_w_cb.isunset()) m_oc_a_en_w_cb(1);
-}
-
-void avr8_generic_t1_timer_device::com_b_w(uint8_t data)
-{
-    m_com_b = BIT(data, 0, 2);
-
-    if (m_com_b == AVR8_TIMER_COM_NORMAL || m_com_b == AVR8_TIMER_COM_TOGGLE)
-    {
-        if (!m_oc_b_en_w_cb.isunset()) m_oc_b_en_w_cb(0);
-        return;
-    }
-
-    if (!m_oc_b_en_w_cb.isunset()) m_oc_b_en_w_cb(1);
-}
-
-void avr8_generic_t1_timer_device::com_c_w(uint8_t data)
-{
-    m_com_c = BIT(data, 0, 2);
-
-    if (m_com_c == AVR8_TIMER_COM_NORMAL || m_com_c == AVR8_TIMER_COM_TOGGLE)
-    {
-        if (!m_oc_c_en_w_cb.isunset()) m_oc_c_en_w_cb(0);
-        return;
-    }
-
-    if (!m_oc_c_en_w_cb.isunset()) m_oc_c_en_w_cb(1);
+    // OCxB and OCxC are disconnected in toggle mode for all WGM modes on this timer
+    logerror("%s: attempt to switch 16-bit timer COMxx to TOGGLE on a channel that doesn't support it\n",
+                machine().describe_context(),
+                m_wgm);
+    return false;
 }
 
 void avr8_generic_t1_timer_device::wgm_w(uint8_t data)
@@ -1534,40 +1156,30 @@ void avr8_generic_t1_timer_device::wgm_w(uint8_t data)
 
     m_wgm = data;
 
-    // enable/disable outputs if necessary
-    com_a_w(m_com_a);
-    com_b_w(m_com_b);
-    if (m_ocr_c_enabled) com_c_w(m_com_c);
+    // a change of WGM means outputs must change,
+    // so force COM rewrites so they change output states appropriately
+    com_w<AVR8_TIMER_CMPCHANNEL_OC_A>(com_r<AVR8_TIMER_CMPCHANNEL_OC_A>());
+    com_w<AVR8_TIMER_CMPCHANNEL_OC_B>(com_r<AVR8_TIMER_CMPCHANNEL_OC_B>());
+    if (m_ocr_c_enabled) com_w<AVR8_TIMER_CMPCHANNEL_OC_C>(com_r<AVR8_TIMER_CMPCHANNEL_OC_C>());
 
     switch (m_wgm)
     {
-        case GENERIC_TIMER1_WGM_NORMAL:
-        case GENERIC_TIMER1_WGM_CTC:
-            // not sure of any sideeffects (yet)
-            break;
-
         case GENERIC_TIMER1_WGM_PWM_8_BIT:
         case GENERIC_TIMER1_WGM_PWM_9_BIT:
         case GENERIC_TIMER1_WGM_PWM_10_BIT:
         case GENERIC_TIMER1_WGM_PWM_PFC_ICR1:
         case GENERIC_TIMER1_WGM_PWM_PFC_OCR1A:
             m_dual_slope_counting_down = false; // guessed
-
-            // PWM modes double buffer OCRxx values to prevent misshapen output waveforms
-            m_ocr_a_buf = m_ocr_a;
-            m_ocr_b_buf = m_ocr_b;
-            if (m_ocr_c_enabled) m_ocr_c_buf = m_ocr_c;
             break;
 
+        case GENERIC_TIMER1_WGM_NORMAL:
+        case GENERIC_TIMER1_WGM_CTC:
         case GENERIC_TIMER1_WGM_FAST_PWM_8_BIT:
         case GENERIC_TIMER1_WGM_FAST_PWM_9_BIT:
         case GENERIC_TIMER1_WGM_FAST_PWM_10_BIT:
         case GENERIC_TIMER1_WGM_FAST_PWM_ICR1:
         case GENERIC_TIMER1_WGM_FAST_PWM_OCRA:
-            // PWM modes double buffer OCRxx values to prevent misshapen output waveforms
-            m_ocr_a_buf = m_ocr_a;
-            m_ocr_b_buf = m_ocr_b;
-            if (m_ocr_c_enabled) m_ocr_c_buf = m_ocr_c;
+            // not sure of any sideeffects (yet)
             break;
         
         default:
@@ -1608,105 +1220,30 @@ uint8_t avr8_generic_t1_timer_device::tcnt_l_r()
     return BIT(m_tcnt, 0, 8);
 }
 
-void avr8_generic_t1_timer_device::ocr_a_h_w(uint8_t data)
+template <uint8_t Channel>
+void avr8_generic_t1_timer_device::ocr_h_w(uint8_t data)
 {
+    // Channel doesn't matter here because data always ends up in the temp register.
+    // however, you can use it for debuglogging.
+    LOGMASKED(LOG_TIMER1, "%s: OCRx%cH setting temp register to %02x\n", machine().describe_context(), 'A' + Channel, data);
     m_temp = data;
 }
 
-void avr8_generic_t1_timer_device::ocr_a_l_w(uint8_t data)
+template void avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_A>(uint8_t data);
+template void avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_B>(uint8_t data);
+template void avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_C>(uint8_t data);
+
+template <uint8_t Channel>
+void avr8_generic_t1_timer_device::ocr_l_w(uint8_t data)
 {
-    m_ocr_a_buf = (m_temp << 8) | data;
-
-    LOGMASKED(LOG_TIMER1, "%s: OCR A switching to %04x\n", machine().describe_context(), m_ocr_a_buf);
-
-    switch (m_wgm)
-    {
-        case GENERIC_TIMER1_WGM_NORMAL:
-        case GENERIC_TIMER1_WGM_CTC:
-        case GENERIC_TIMER1_WGM_CTC_ICR1:
-            m_ocr_a = m_ocr_a_buf;
-            break;
-        
-        default:
-            break;
-    }
+    LOGMASKED(LOG_TIMER1, "%s: m_temp %02x\n", machine().describe_context(), m_temp);
+    m_ocr_buf[Channel] = (m_temp << 8) | data;
+    LOGMASKED(LOG_TIMER1, "%s: OCR %c switching to %04x\n", machine().describe_context(), 'A' + Channel, m_ocr_buf[Channel]);
 }
 
-uint8_t avr8_generic_t1_timer_device::ocr_a_h_r()
-{
-    return BIT(m_ocr_a_buf, 8, 8);
-}
-
-uint8_t avr8_generic_t1_timer_device::ocr_a_l_r()
-{
-    return BIT(m_ocr_a_buf, 0, 8);
-}
-
-void avr8_generic_t1_timer_device::ocr_b_h_w(uint8_t data)
-{
-    m_temp = data;
-}
-
-void avr8_generic_t1_timer_device::ocr_b_l_w(uint8_t data)
-{
-    m_ocr_b_buf = (m_temp << 8) | data;
-
-    switch (m_wgm)
-    {
-        case GENERIC_TIMER1_WGM_NORMAL:
-        case GENERIC_TIMER1_WGM_CTC:
-        case GENERIC_TIMER1_WGM_CTC_ICR1:
-            m_ocr_b = m_ocr_b_buf;
-            break;
-        
-        default:
-            break;
-    }
-}
-
-uint8_t avr8_generic_t1_timer_device::ocr_b_h_r()
-{
-    return BIT(m_ocr_b_buf, 8, 8);
-}
-
-uint8_t avr8_generic_t1_timer_device::ocr_b_l_r()
-{
-    return BIT(m_ocr_b_buf, 0, 8);
-}
-
-void avr8_generic_t1_timer_device::ocr_c_h_w(uint8_t data)
-{
-    if (!m_ocr_c_enabled) return;
-    m_temp = data;
-}
-
-void avr8_generic_t1_timer_device::ocr_c_l_w(uint8_t data)
-{
-    if (!m_ocr_c_enabled) return;
-    m_ocr_c_buf = (m_temp << 8) | data;
-
-    switch (m_wgm)
-    {
-        case GENERIC_TIMER1_WGM_NORMAL:
-        case GENERIC_TIMER1_WGM_CTC:
-        case GENERIC_TIMER1_WGM_CTC_ICR1:
-            m_ocr_c = m_ocr_c_buf;
-            break;
-        
-        default:
-            break;
-    }
-}
-
-uint8_t avr8_generic_t1_timer_device::ocr_c_h_r()
-{
-    return m_ocr_c_enabled ? BIT(m_ocr_c_buf, 8, 8) : 0;
-}
-
-uint8_t avr8_generic_t1_timer_device::ocr_c_l_r()
-{
-    return m_ocr_c_enabled ? BIT(m_ocr_c_buf, 0, 8) : 0;
-}
+template void avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_A>(uint8_t data);
+template void avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_B>(uint8_t data);
+template void avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_C>(uint8_t data);
 
 void avr8_generic_t1_timer_device::tccr_b_w(uint8_t data)
 {
@@ -1740,6 +1277,46 @@ uint8_t avr8_generic_t1_timer_device::tccr_c_r()
     return 0;
 }
 
+bool avr8_generic_t1_timer_device::should_reload_ocrs()
+{
+    // See https://ww1.microchip.com/downloads/en/DeviceDoc/ATmega48A-PA-88A-PA-168A-PA-328-P-DS-DS40002061A.pdf
+    // Table 16-4.
+    switch (m_wgm)
+    {
+        case GENERIC_TIMER1_WGM_NORMAL:
+        case GENERIC_TIMER1_WGM_CTC:
+        case GENERIC_TIMER1_WGM_CTC_ICR1:
+            return true;
+
+        case GENERIC_TIMER1_WGM_PWM_8_BIT:
+            return (m_tcnt & max_count()) == 0xff; // update at TOP (=0x00ff)
+
+        case GENERIC_TIMER1_WGM_PWM_9_BIT:
+            return (m_tcnt & max_count()) == 0x1ff; // update at TOP (=0x01ff)
+
+        case GENERIC_TIMER1_WGM_PWM_10_BIT:
+            return (m_tcnt & max_count()) == 0x3ff; // update at TOP (=0x03ff)
+
+        case GENERIC_TIMER1_WGM_PWM_ICR1:
+            return false; // (m_tcnt & max_count()) == m_icr; // update at TOP (=ICR)
+
+        case GENERIC_TIMER1_WGM_PWM_OCR1A:
+            return (m_tcnt & max_count()) == m_ocr[AVR8_TIMER_CMPCHANNEL_OC_A]; // update at TOP (=OCRxA)
+
+        case GENERIC_TIMER1_WGM_PWM_PFC_ICR1:
+        case GENERIC_TIMER1_WGM_PWM_PFC_OCR1A:
+        case GENERIC_TIMER1_WGM_FAST_PWM_8_BIT:
+        case GENERIC_TIMER1_WGM_FAST_PWM_9_BIT:
+        case GENERIC_TIMER1_WGM_FAST_PWM_10_BIT:
+        case GENERIC_TIMER1_WGM_FAST_PWM_ICR1:
+        case GENERIC_TIMER1_WGM_FAST_PWM_OCRA:
+            return is_min_count(); // update at BOTTOM (=0)
+        
+        default:
+            return false;
+    }
+}
+
 ///////////////////////////////////////////////////////////////
 // FAKE RTC TIMER 2
 ///////////////////////////////////////////////////////////////
@@ -1762,6 +1339,7 @@ avr8_generic_fakertc_timer_device::avr8_generic_fakertc_timer_device(const machi
 
 void avr8_generic_fakertc_timer_device::tick()
 {
+    // TODO: this is WRONG. PRTIM is ignored if the timer is in asynchronous mode
     if (m_prtim) return;
 
     if (m_cs == GENERIC_FAKERTC_CS_DISABLED)
@@ -1774,6 +1352,11 @@ void avr8_generic_fakertc_timer_device::tick()
     if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV64 && !m_upstream_prescaler->clkdiv_r<64>()) return;
     if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV128 && !m_upstream_prescaler->clkdiv_r<128>()) return;
     if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV256 && !m_upstream_prescaler->clkdiv_r<1024>()) return;
+
+    if (should_reload_ocrs())
+    {
+        reload_ocrs();
+    }
 
     m_wgm_cbs[m_wgm]();
     m_no_compare_this_cycle = false; // because the current timer cycle has ended
@@ -1807,12 +1390,13 @@ void avr8_fakertc_async_controller_device::device_add_mconfig(machine_config &co
 
 void avr8_fakertc_async_controller_device::device_start()
 {
-    // TODO: create but don't start the external crystal timer
     save_item(NAME(m_external_crystal_period));
     save_item(NAME(m_as2));
     save_item(NAME(m_exclk));
     save_item(NAME(m_tosc_last_state));
     save_item(NAME(m_clk_io));
+
+    // TODO: create but don't start the external crystal timer
 }
 
 void avr8_fakertc_async_controller_device::device_reset()
@@ -1838,7 +1422,7 @@ void avr8_fakertc_async_controller_device::clk_io_w(uint8_t data)
     
     // TODO: determine asynchronous "busy" flags for the timer registers
     // and how many cycles it takes from when a write happens to when
-    // those flags clear
+    // those flags clear.
 }
 
 void avr8_fakertc_async_controller_device::tosc_w(uint8_t data)

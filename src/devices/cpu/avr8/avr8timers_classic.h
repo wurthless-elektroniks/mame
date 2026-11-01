@@ -1,3 +1,5 @@
+// license:BSD-3-Clause
+// copyright-holders:Ryan Holtz, Sandro Ronco, Felipe Sanches, wurthless-elektroniks
 #ifndef MAME_CPU_AVR8_AVR8TIMERS_CLASSIC_H
 #define MAME_CPU_AVR8_AVR8TIMERS_CLASSIC_H
 
@@ -12,6 +14,17 @@ enum avr8_timer_intchannel : uint8_t
     AVR8_TIMER_INTCHANNEL_IC,
 
     AVR8_TIMER_INTCHANNEL_MAX,
+};
+
+enum avr8_timer_cmpchannel : uint8_t
+{
+    AVR8_TIMER_CMPCHANNEL_OC_A,
+    AVR8_TIMER_CMPCHANNEL_OC_B,
+    AVR8_TIMER_CMPCHANNEL_OC_C,
+
+    // input compare not included here because it's a signal we can't drive
+
+    AVR8_TIMER_CMPCHANNEL_MAX
 };
 
 /**
@@ -121,64 +134,16 @@ public:
     void unmap_wgm_mode(uint8_t which);
 
     // set callbacks for OCxx line state changes, where applicable
-    auto oc_a_w_cb() { return m_oc_a_w_cb.bind(); }
-    auto oc_b_w_cb() { return m_oc_b_w_cb.bind(); }
-    auto oc_c_w_cb() { return m_oc_c_w_cb.bind(); }
-
-    auto oc_a_en_w_cb() { return m_oc_a_en_w_cb.bind(); }
-    auto oc_b_en_w_cb() { return m_oc_b_en_w_cb.bind(); }
-    auto oc_c_en_w_cb() { return m_oc_c_en_w_cb.bind(); }
-
-    auto oc_a_toggle_w_cb() { return m_oc_a_toggle_w_cb.bind(); }
-    auto oc_b_toggle_w_cb() { return m_oc_b_toggle_w_cb.bind(); }
-    auto oc_c_toggle_w_cb() { return m_oc_c_toggle_w_cb.bind(); }
-
+    template <uint8_t Channel> auto oc_w_cb() { return m_oc_w_cbs[Channel].bind(); }
+    template <uint8_t Channel> auto oc_en_w_cb() { return m_oc_en_w_cbs[Channel].bind(); }
+    template <uint8_t Channel> auto oc_toggle_w_cb() { return m_oc_toggle_w_cbs[Channel].bind(); }
+    
     template <uint8_t Channel> auto int_cb() { return m_int_cbs[Channel].bind(); }
     template <uint8_t Channel> void int_w(uint8_t data); // write 1 to acknowledge interrupt *AND* clear any interrupt pending on the CPU
     template <uint8_t Channel> void int_ack_w(uint8_t data); // write anything to acknowledge interrupt ONLY
     template <uint8_t Channel> uint8_t int_r() { return m_int[Channel]; } // read interrupt flag
     template <uint8_t Channel> void int_en_w(uint8_t data);
     template <uint8_t Channel> uint8_t int_en_r() { return m_int_en[Channel]; }
-
-#if 0
-    // TOV/TOIE: timer overflow interrupt, common to all timers
-    auto tov_int_cb() { return m_tov_int_cb.bind(); } // TOVx interrupt callback (can clear a pending interrupt)
-    void tov_w(uint8_t data); // TOVx clear/acknowledge (when written by program)
-    void tov_ack_w(uint8_t data); // TOVx clear/acknowledge (when AVR8 core takes the interrupt)
-    uint8_t tov_r() { return m_tov; } // TOVx status
-    void toie_w(uint8_t data);
-    uint8_t toie_r() { return m_toie; }
-
-    // OCFxA, OCIExA
-    auto ocf_a_int_cb() { return m_ocf_a_int_cb.bind(); }
-    void ocf_a_w(uint8_t data);
-    void ocf_a_ack_w(uint8_t data);
-    uint8_t ocf_a_r() { return m_ocf_a; }
-    void ocie_a_w(uint8_t data);
-    uint8_t ocie_a_r() { return m_ocie_a; }
-    
-    // OCFxB, OCIExB
-    auto ocf_b_int_cb() { return m_ocf_b_int_cb.bind(); }
-    void ocf_b_w(uint8_t data);
-    void ocf_b_ack_w(uint8_t data);
-    uint8_t ocf_b_r() { return m_ocf_b; }
-    void ocie_b_w(uint8_t data);
-    uint8_t ocie_b_r() { return m_ocie_b; }
-    
-    // OCFxC, OCIExC
-    auto ocf_c_int_cb() { return m_ocf_c_int_cb.bind(); }
-    void ocf_c_w(uint8_t data);
-    void ocf_c_ack_w(uint8_t data);
-    uint8_t ocf_c_r() { return m_ocf_c; }
-    void ocie_c_w(uint8_t data);
-    uint8_t ocie_c_r() { return m_ocie_c; }
-
-    // ICF
-    auto icf_int_cb() { return m_icf_int_cb.bind(); }
-    void icf_w(uint8_t data);
-    void ocf_c_ack_w(uint8_t data);
-    uint8_t icf_r() { return m_icf; } 
-#endif
 
     /**
      * Writes the PRTIMx value (1 = shutdown, 0 = run).
@@ -190,22 +155,22 @@ public:
     void prtim_w(uint8_t data);
     uint8_t prtim_r();
 
-    virtual void wgm_w(uint8_t data) = 0; // WGM modes vary wildly between each timer type
+    virtual void wgm_w(uint8_t data) = 0; // WGM modes vary between each timer type, and WGM changes must change output pins
     uint8_t wgm_r() { return m_wgm; }
 
-    // COMxx (Compare Output Mode) write handlers must be installed in the subclasses
-    // because the setting values tend to change between timer types.
-    // The default implementations should panic if called.
-    //
-    // Reads can just return the m_com_x value; there's no side effects.
-    virtual void com_a_w(uint8_t data); // COMxA write
-    uint8_t com_a_r() { return m_com_a; }
-    
-    virtual void com_b_w(uint8_t data);
-    uint8_t com_b_r() { return m_com_b; }
-    
-    virtual void com_c_w(uint8_t data);
-    uint8_t com_c_r() { return m_com_c; }
+    /**
+     * Write to COMxx register.
+     */
+    template <uint8_t Channel> void com_w(uint8_t data);
+    template <uint8_t Channel> uint8_t com_r() { return m_com[Channel]; }
+
+    /**
+     * Extension point; return false to prevent output lines from being enabled.
+     * The 16-bit timers will need this, as toggle modes are not always valid.
+     *
+     * TODO: this kinda defeats the purpose of templates... might need to rewrite this (again)
+     */
+    virtual bool com_mode_allows_output(uint8_t channel) { return true; }
 
     /**
      * Set incoming value on Tx pin (T0, T1, etc.). This is to be called
@@ -227,6 +192,7 @@ public:
      * it is the system clock, so it'll be clocked in the execution loop.
      */
     virtual void tick() = 0;
+
 
     // TODO: determine if this should be pure virtual or just a common setter
     virtual void cs_w(uint8_t data) = 0;
@@ -260,89 +226,43 @@ protected:
     // over side-effects which may or may not happen.
     uint32_t m_tcnt;
 
-    // Output compare values, MUST BE SAVESTATE-ABLE.
-    // Most timers will only need a couple of these.
-    uint16_t m_ocr_a;
-    uint16_t m_ocr_b;
-    uint16_t m_ocr_c;
-    uint16_t m_ocr_a_buf; // OCRxA double-buffer value; needed for PWM modes
-    uint16_t m_ocr_b_buf;
-    uint16_t m_ocr_c_buf;
-
     uint8_t m_wgm; // WGM i.e., waveform generation mode (base timer mode)
 
     uint8_t m_cs; // Clock select (enable/disable timer, prescaler select, switch clock inputs...)
 
-    // COM i.e., compare/match output mode. setting these can override GPIOs
-    uint8_t m_com_a;
-    uint8_t m_com_b;
-    uint8_t m_com_c;
-
+    // Output compare channels and modes, MUST BE SAVESTATE-ABLE.
+    std::array<uint16_t,AVR8_TIMER_CMPCHANNEL_MAX> m_ocr; // internal OCR values; loaded from buffers on certain counts depending on WGM mode
+    std::array<uint16_t,AVR8_TIMER_CMPCHANNEL_MAX> m_ocr_buf; // buffered OCR values accessible from the CPU
+    std::array<uint8_t,AVR8_TIMER_CMPCHANNEL_MAX> m_com; // Compare Output Modes for driving the OCxx pins; setting these can override GPIOs
 
     // Interrupt enables and interrupt flags, MUST BE SAVESTATE-ABLE.
-    bool m_int[AVR8_TIMER_INTCHANNEL_MAX];
-    bool m_int_en[AVR8_TIMER_INTCHANNEL_MAX];
+    std::array<bool,AVR8_TIMER_INTCHANNEL_MAX> m_int;
+    std::array<bool,AVR8_TIMER_INTCHANNEL_MAX> m_int_en;
 
     // Interrupt callbacks; all write 1 to set interrupt pending and 0 to clear it.
     // When one of these are called, the core or whatever else implementing the callback
     // should NOT try to clear/raise an interrupt again, or we get infinite recursion headaches.
     devcb_write_line::array<AVR8_TIMER_INTCHANNEL_MAX> m_int_cbs;
 
-#if 0
-    // Interrupt enables and interrupt flags, MUST BE SAVESTATE-ABLE.
-    bool m_toie;  // TOIEx; overflow interrupt enable
-    bool m_tov;   // TOVx; overflow interrupt flag
-    bool m_ocie_a; // OCIExA; compare interrupt enable
-    bool m_ocf_a; // OCFxA; compare interrupt flag
-    bool m_ocie_b; // OCIExB; compare interrupt enable
-    bool m_ocf_b; // OCFxB; compare interrupt flag
-    bool m_ocie_c; // OCIExC; compare interrupt enable
-    bool m_ocf_c; // OCFxC; compare interrupt flag
-    
-    bool m_icie; // ICIE; input capture interrupt enable
-    bool m_icf;
-#endif
-
     bool m_prtim; // PRTIMx bit; usually stops counting when true
 
-    bool m_t; // Tx input pin state, takes effect on next tick
-    bool m_t_last; // Tx input pin state on last sample
+    bool m_t; // Tx input pin state
+    bool m_t_last;
+    bool m_t_rising;
+    bool m_t_falling;
 
-    bool m_dual_slope; // dual slope counting enable
-    bool m_dual_slope_counting_down;
+    bool m_dual_slope_counting_down; // for dual slope PWM modes
 
     bool m_no_compare_this_cycle; // set if TCNTx is written; blocks compare operation on current timer cycle
 
-    bool m_clk_io; // clk_io signal; derrived from master clock. typically the same as the CPU clcok
-
-#if 0
-    // Interrupt callbacks; all write 1 to set interrupt pending and 0 to clear it.
-    // When one of these are called, the core or whatever else implementing the callback
-    // should NOT try to clear/raise an interrupt again, or we get infinite recursion headaches.
-    devcb_write_line m_tov_int_cb;
-    devcb_write_line m_ocf_a_int_cb;
-    devcb_write_line m_ocf_b_int_cb;
-    devcb_write_line m_ocf_c_int_cb;
-    devcb_write_line m_icf_int_cb;
-#endif
+    bool m_clk_io; // clk_io signal; derived from master clock. typically the same as the CPU clcok
 
     // OCxx output callbacks when enabling/disabling the outputs
     // so downstream GPIO drivers and other devices can react.
-    devcb_write_line m_oc_a_en_w_cb; // OCxA enable output
-    devcb_write_line m_oc_b_en_w_cb; // OCxB enable output
-    devcb_write_line m_oc_c_en_w_cb; // OCxC enable output
-
-    // OCxx output callbacks for modes where we can explicitly request an output value
-    devcb_write_line m_oc_a_w_cb; // OCxA output
-    devcb_write_line m_oc_b_w_cb; // OCxB output
-    devcb_write_line m_oc_c_w_cb; // OCxC output
-
-    // OCxx output callbacks for toggle modes; GPIO mux or something else must keep
-    // track of the previous value for us. The value written is irrelevant.
-    devcb_write_line m_oc_a_toggle_w_cb; // OCxA toggle request
-    devcb_write_line m_oc_b_toggle_w_cb; // OCxB toggle request
-    devcb_write_line m_oc_c_toggle_w_cb; // OCxC toggle request
-
+    devcb_write_line::array<AVR8_TIMER_CMPCHANNEL_MAX> m_oc_en_w_cbs; // OCxx enable outputs
+    devcb_write_line::array<AVR8_TIMER_CMPCHANNEL_MAX> m_oc_w_cbs; // OCxx outputs (data will be 0 or 1)
+    devcb_write_line::array<AVR8_TIMER_CMPCHANNEL_MAX> m_oc_toggle_w_cbs; // OCxx toggle request (value irrelevant)
+    
     // Callback table that points a wgm value to the timer advance function
     avr8_base_timer_device::timer_func m_wgm_cbs[0x100];
 
@@ -359,17 +279,15 @@ protected:
     inline uint32_t prev_count() { return (m_tcnt - 1) & max_count(); } // return TCNT-1, wrapping to MAX on underflow
     inline bool will_next_count_overflow() { return m_tcnt != 0 && next_count() == 0; } // return true if tcnt will wrap
     inline bool will_prev_count_reach_bottom() { return m_tcnt != 0 && prev_count() == 0; } // return true if tcnt will hit 0 if counting down
-    inline bool is_compare_a() { return !m_no_compare_this_cycle && m_tcnt == m_ocr_a; }
-    inline bool is_compare_b() { return !m_no_compare_this_cycle && m_tcnt == m_ocr_b; }
-    inline bool is_compare_c() { return !m_no_compare_this_cycle && m_tcnt == m_ocr_c; }
+    template <uint8_t Channel> inline bool is_compare() { return !m_no_compare_this_cycle && (m_tcnt & max_count()) == m_ocr[Channel]; }
+    inline bool is_compare_a() { return is_compare<AVR8_TIMER_CMPCHANNEL_OC_A>(); }
+    inline bool is_compare_b() { return is_compare<AVR8_TIMER_CMPCHANNEL_OC_B>(); }
+    inline bool is_compare_c() { return is_compare<AVR8_TIMER_CMPCHANNEL_OC_C>(); }
     inline bool is_max_count() { return m_tcnt == max_count(); }
-    inline bool will_compare_a() { return next_count() == m_ocr_a; }
-    inline bool will_compare_b() { return next_count() == m_ocr_b; }
-    inline bool will_compare_c() { return next_count() == m_ocr_c; }
-    inline bool will_prev_compare_a() { return prev_count() == m_ocr_a; }
-    inline bool will_prev_compare_b() { return prev_count() == m_ocr_b; }
-    inline bool will_prev_compare_c() { return prev_count() == m_ocr_c; }
+    inline bool is_min_count() { return m_tcnt == 0; }
     
+    inline void reload_ocrs() { std::copy(m_ocr_buf.begin(), m_ocr_buf.end(), m_ocr.begin()); }
+
     template <uint8_t Channel> void raise_int();
     template <uint8_t Channel> void clear_int();
 
@@ -385,12 +303,14 @@ protected:
     inline void clear_ocf_c() { clear_int<AVR8_TIMER_INTCHANNEL_OC_C>(); }
     inline void clear_icf() { clear_int<AVR8_TIMER_INTCHANNEL_IC>(); }
 
-    virtual bool is_async_mode() const { return false; } // default assumes synchronous timer, so always returns false
+    void sample_t_input();
+
+    virtual bool is_async_mode() { return false; } // default assumes synchronous timer, so always returns false
 
     // WGM callbacks install
     virtual void install_wgm_callbacks() = 0;
 
-    // return number of bits in this timer (8, 10, 16)
+    // return number of bits in this timer (8, 16)
     virtual uint32_t get_num_bits() const = 0;
 
     // Generic implementation of the "Normal" timer mode, which advances until overflow,
@@ -398,9 +318,30 @@ protected:
     // This does not implement the OCxx toggles; subclasses must do that.
     virtual void advance_normal();
 
-    void update_oc_a_nonpwm_generic(); 
-    void update_oc_b_nonpwm_generic(); 
-    void update_oc_c_nonpwm_generic(); 
+    // Called before the active wgm callback runs. If true, then OCR values
+    // will be reloaded from the OCR buffer registers.
+    virtual bool should_reload_ocrs() = 0;
+
+    /**
+     * Updates the OC channel (assuming its output has already been enabled).
+     *
+     * - Toggling: if true, COM = AVR8_TIMER_COM_TOGGLE will strobe m_oc_toggle_w_cb[Channel].
+     * - SetState: Value to write to m_oc_w_cb[Channel] if COM = AVR8_TIMER_COM_SET.
+     * - ClearState: Value to write to m_oc_w_cb[Channel] if COM = AVR8_TIMER_COM_CLEAR.
+     * - COM = AVR8_TIMER_COM_NORMAL does nothing.
+     */
+
+    template <uint8_t Channel,
+              uint8_t SetState,
+              uint8_t ClearState,
+              bool Toggling>
+    void update_oc();
+
+    template <uint8_t Channel> inline void update_oc_generic() { update_oc<Channel, 1, 0, true>(); }
+    template <uint8_t Channel> inline void update_oc_generic_inverse() { update_oc<Channel, 0, 1, true>(); }
+    template <uint8_t Channel> inline void update_oc_generic_notoggle() { update_oc<Channel, 1, 0, false>(); }
+    template <uint8_t Channel> inline void update_oc_generic_notoggle_inverse() { update_oc<Channel, 0, 1, false>(); }
+
 };
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -470,19 +411,19 @@ public:
 
         if ((0 <= ComA1Bit && ComA1Bit <= 7) || (0 <= ComA0Bit && ComA0Bit <= 7))
         {
-            ((T*)this)->com_a_w((0 <= ComA1Bit && ComA1Bit <= 7 ? BIT(data, ComA1Bit) << 1 : 0) |
+            ((T*)this)->template com_w<AVR8_TIMER_CMPCHANNEL_OC_A>((0 <= ComA1Bit && ComA1Bit <= 7 ? BIT(data, ComA1Bit) << 1 : 0) |
                     (0 <= ComA0Bit && ComA0Bit <= 7 ? BIT(data, ComA0Bit) << 0 : 0));
         }
 
         if ((0 <= ComB1Bit && ComB1Bit <= 7) || (0 <= ComB0Bit && ComB0Bit <= 7))
         {
-            ((T*)this)->com_b_w((0 <= ComB1Bit && ComB1Bit <= 7 ? BIT(data, ComB1Bit) << 1 : 0) |
+            ((T*)this)->template com_w<AVR8_TIMER_CMPCHANNEL_OC_B>((0 <= ComB1Bit && ComB1Bit <= 7 ? BIT(data, ComB1Bit) << 1 : 0) |
                     (0 <= ComB0Bit && ComB0Bit <= 7 ? BIT(data, ComB0Bit) << 0 : 0));
         }
         
         if ((0 <= ComC1Bit && ComC1Bit <= 7) || (0 <= ComC0Bit && ComC0Bit <= 7))
         {
-            ((T*)this)->com_c_w((0 <= ComC1Bit && ComC1Bit <= 7 ? BIT(data, ComC1Bit) << 1 : 0) |
+            ((T*)this)->template com_w<AVR8_TIMER_CMPCHANNEL_OC_C>((0 <= ComC1Bit && ComC1Bit <= 7 ? BIT(data, ComC1Bit) << 1 : 0) |
                     (0 <= ComC0Bit && ComC0Bit <= 7 ? BIT(data, ComC0Bit) << 0 : 0));
         }
     }
@@ -500,21 +441,21 @@ public:
 
         if ((0 <= ComA1Bit && ComA1Bit <= 7) || (0 <= ComA0Bit && ComA0Bit <= 7))
         {
-            uint8_t com_a = ((T*)this)->com_a_r();
+            uint8_t com_a = ((T*)this)->template com_r<AVR8_TIMER_CMPCHANNEL_OC_A>();
             if (0 <= ComA1Bit && ComA1Bit <= 7) value |= BIT(com_a, 1) << ComA1Bit;
             if (0 <= ComA0Bit && ComA0Bit <= 7) value |= BIT(com_a, 0) << ComA0Bit;
         }
 
         if ((0 <= ComB1Bit && ComB1Bit <= 7) || (0 <= ComB0Bit && ComB0Bit <= 7))
         {
-            uint8_t com_b = ((T*)this)->com_b_r();
+            uint8_t com_b = ((T*)this)->template com_r<AVR8_TIMER_CMPCHANNEL_OC_B>();
             if (0 <= ComB1Bit && ComB1Bit <= 7) value |= BIT(com_b, 1) << ComB1Bit;
             if (0 <= ComB0Bit && ComB0Bit <= 7) value |= BIT(com_b, 0) << ComB0Bit;
         }
         
         if ((0 <= ComC1Bit && ComC1Bit <= 7) || (0 <= ComC0Bit && ComC0Bit <= 7))
         {
-            uint8_t com_c = ((T*)this)->com_c_r();
+            uint8_t com_c = ((T*)this)->template com_r<AVR8_TIMER_CMPCHANNEL_OC_C>();
             if (0 <= ComC1Bit && ComB1Bit <= 7) value |= BIT(com_c, 1) << ComB1Bit;
             if (0 <= ComB0Bit && ComB0Bit <= 7) value |= BIT(com_c, 0) << ComB0Bit;
         }
@@ -609,10 +550,10 @@ class avr8_generic_8bit_timer_device : public avr8_base_timer_device
     };
 
 public:
-    void ocr_a_w(uint8_t data);
-    uint8_t ocr_a_r();
-    void ocr_b_w(uint8_t data);
-    uint8_t ocr_b_r();
+    template <uint8_t Channel> void ocr_w(uint8_t data) { m_ocr_buf[Channel] = data; }
+    template <uint8_t Channel> uint8_t ocr_r() { return m_ocr[Channel]; }
+
+    void wgm_w(uint8_t data) override;
 
 protected:
     avr8_generic_8bit_timer_device(const machine_config &mconfig,
@@ -629,26 +570,13 @@ protected:
     void advance_fast_pwm();
     void advance_fast_pwm_ocr_a();     
 
-    void update_oc0a_fast_pwm_on_compare();
-    void update_oc0a_fast_pwm_on_top();
-    void update_oc0b_fast_pwm_on_compare();
-    void update_oc0b_fast_pwm_on_top();
-
-    void update_oc0a_pwm_on_upcount_compare();
-    void update_oc0a_pwm_on_downcount_compare();
-    void update_oc0b_pwm_on_upcount_compare();
-    void update_oc0b_pwm_on_downcount_compare();
-
-
     void force_oc0a(); // force OC0A output as if comparison happened; does not set interrupt flag
     void force_oc0b(); // force OC0B output as if comparison happened; does not set interrupt flag
 
-    virtual void com_a_w(uint8_t data) override;
-    virtual void com_b_w(uint8_t data) override;
-    virtual void wgm_w(uint8_t data) override;
-
     virtual uint32_t get_num_bits() const override { return 8; }
     virtual void advance_normal() override;
+
+    virtual bool should_reload_ocrs() override;
 };
 
 class avr8_generic_t0_timer_device : public avr8_generic_8bit_timer_device
@@ -711,8 +639,6 @@ public:
 
     // have to put these here so mixins are happy
     void wgm_w(uint8_t data) { avr8_generic_t0_timer_device::wgm_w(data); }
-    void com_a_w(uint8_t data) { avr8_generic_t0_timer_device::com_a_w(data); }
-    void com_b_w(uint8_t data) { avr8_generic_t0_timer_device::com_b_w(data); }
 };
 
 
@@ -772,21 +698,11 @@ public:
     void tcnt_l_w(uint8_t data);
     uint8_t tcnt_l_r();
 
-    void ocr_a_h_w(uint8_t data);
-    uint8_t ocr_a_h_r();
-    void ocr_a_l_w(uint8_t data);
-    uint8_t ocr_a_l_r();
-    
-    void ocr_b_h_w(uint8_t data);
-    uint8_t ocr_b_h_r();
-    void ocr_b_l_w(uint8_t data);
-    uint8_t ocr_b_l_r();
-    
-    void ocr_c_h_w(uint8_t data);
-    uint8_t ocr_c_h_r();
-    void ocr_c_l_w(uint8_t data);
-    uint8_t ocr_c_l_r();
-
+    template <uint8_t Channel> void ocr_h_w(uint8_t data); // really writes to temporary register
+    template <uint8_t Channel> uint8_t ocr_h_r() { return BIT(m_ocr_buf[Channel], 8, 8); } // returns buffer contents immediately
+    template <uint8_t Channel> void ocr_l_w(uint8_t data); // writes temp reg contents + lower 8 bits to OCR buffer reg
+    template <uint8_t Channel> uint8_t ocr_l_r() { return BIT(m_ocr_buf[Channel], 0, 8); }
+   
     void tccr_b_w(uint8_t data);
     uint8_t tccr_b_r();
     void tccr_c_w(uint8_t data);
@@ -794,9 +710,7 @@ public:
     
     void tick() override;
 
-    virtual void com_a_w(uint8_t data) override;
-    virtual void com_b_w(uint8_t data) override;
-    virtual void com_c_w(uint8_t data) override;
+    virtual bool com_mode_allows_output(uint8_t channel) override;
 
     virtual void wgm_w(uint8_t data) override;
     virtual void cs_w(uint8_t data) override;
@@ -816,7 +730,7 @@ protected:
 
     virtual uint32_t get_num_bits() const override { return 16; }
 
-
+    virtual bool should_reload_ocrs() override;
 
     void advance_pwm_common(uint16_t top);
 
@@ -825,13 +739,6 @@ protected:
     void advance_pwm_10bit();
     void advance_ctc_ocr_a();
     void advance_fast_pwm_ocr_a();
-
-    void update_oc_a_pwm_on_downcount_compare();
-    void update_oc_a_pwm_on_upcount_compare();
-    void update_oc_b_pwm_on_downcount_compare();
-    void update_oc_b_pwm_on_upcount_compare();
-    void update_oc_c_pwm_on_downcount_compare();
-    void update_oc_c_pwm_on_upcount_compare();
 };
 
 /**
@@ -870,9 +777,10 @@ protected:
         const device_type device_type);
 
     virtual uint32_t get_num_bits() const override { return 8; }
-    virtual bool is_async_mode() const override { return true; } // ignore attempts by main exec loop to tick the timer
+    virtual bool is_async_mode() override { return true; } // ignore attempts by main exec loop to tick the timer
 
     void cs_w(uint8_t data) override;
+
 };
 
 /**
@@ -941,7 +849,8 @@ protected:
 };
 
 #if 0
-
+// TODO: xU4's timer is to be placed in its own file.
+// this remains for documentation
 class atmegaxu4_t4_timer_device : avr8_base_timer_device<10>
 {
 
@@ -989,9 +898,6 @@ public:
 };
 #endif
 
-
-
-
 // device type definitions
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_0, avr8_generic_t0_timer_device)
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_TIMER_0, avr8_megaavr_timer_0_device)
@@ -1003,6 +909,5 @@ DECLARE_DEVICE_TYPE(AVR8_CLASSIC_OUTPUT_COMPARE_MODULATOR, avr8_output_compare_m
 
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_FAKE_RTC_TIMER, avr8_generic_fakertc_timer_device)
 DECLARE_DEVICE_TYPE(AVR8_CLASSIC_FAKE_RTC_ASYNC_CONTROLLER, avr8_fakertc_async_controller_device)
-
 
 #endif // MAME_CPU_AVR8_AVR8TIMERS_CLASSIC_H
