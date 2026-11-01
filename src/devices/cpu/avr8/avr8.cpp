@@ -1033,6 +1033,7 @@ void atmega644_device::atmega644_internal_map(address_map &map)
 void atmega1284_device::atmega1284_internal_map(address_map &map)
 {
 	atmegax4_base_internal_map(map);
+	map(0x005b, 0x005b).rw(FUNC(atmega1284_device::reg_r<RAMPZ>), FUNC(atmega1284_device::reg_w<RAMPZ>));
 }
 
 
@@ -1169,11 +1170,13 @@ void atmegax0_base_device::atmegax0_base_internal_map(address_map &map)
 void atmega1280_device::atmega1280_internal_map(address_map &map)
 {
 	atmegax0_base_internal_map(map);
+	map(0x005b, 0x005b).rw(FUNC(atmega1280_device::reg_r<RAMPZ>), FUNC(atmega1280_device::reg_w<RAMPZ>));
 }
 
 void atmega2560_device::atmega2560_internal_map(address_map &map)
 {
 	atmegax0_base_internal_map(map);
+	map(0x005b, 0x005b).rw(FUNC(atmega2560_device::reg_r<RAMPZ>), FUNC(atmega2560_device::reg_w<RAMPZ>));
 }
 
 
