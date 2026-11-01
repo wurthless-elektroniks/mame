@@ -89,9 +89,11 @@ public:
 
     // inputs from output compare units
     void compare_out_a_w(uint8_t data); // OCxx from output compare unit
-    void compare_out_en_a(uint8_t data); // from output compare unit; 1 if COMxx != 0
+    void compare_out_en_a_w(uint8_t data); // from output compare unit; 1 if COMxx != 0
+    void compare_out_toggle_a_w(uint8_t data); // toggle request; value written is irrelevant
     void compare_out_b_w(uint8_t data); // OCxx from output compare unit
-    void compare_out_en_b(uint8_t data); // from output compare unit; 1 if COMxx != 0
+    void compare_out_en_b_w(uint8_t data); // from output compare unit; 1 if COMxx != 0
+    void compare_out_toggle_b_w(uint8_t data); // toggle request; value written is irrelevant
     
     // inputs from PORTx mux
     void port_bit_w(uint8_t data); // from PORTx bit
@@ -140,7 +142,7 @@ public:
     
     template <uint8_t Channel> auto int_cb() { return m_int_cbs[Channel].bind(); }
     template <uint8_t Channel> void int_w(uint8_t data); // write 1 to acknowledge interrupt *AND* clear any interrupt pending on the CPU
-    template <uint8_t Channel> void int_ack_w(uint8_t data); // write anything to acknowledge interrupt ONLY
+    template <uint8_t Channel> void int_ack_w(uint8_t data); // write anything to acknowledge interrupt ONLY (i.e., when CPU takes the interrupt)
     template <uint8_t Channel> uint8_t int_r() { return m_int[Channel]; } // read interrupt flag
     template <uint8_t Channel> void int_en_w(uint8_t data);
     template <uint8_t Channel> uint8_t int_en_r() { return m_int_en[Channel]; }
@@ -786,6 +788,10 @@ protected:
 /**
  * Asynchronous timer controller for the fake RTC, providing the ASSR register
  * and clock source switching.
+ * 
+ * Per the datasheets, the frequency of any asynchronous clock source feeding
+ * this unit cannot be more than 1/4th of the CPU clock. We don't enforce this
+ * as the CPU core's state is not really our business.
  */
 class avr8_fakertc_async_controller_device : public device_t 
 {
@@ -796,7 +802,7 @@ public:
         uint32_t clock);
 
     /**
-     * Set external crystal frequency. Default setting is 0 (do not clock).
+     * Set external crystal frequency. Default setting is attotime::never (do not clock).
      */
     void set_external_crystal_frequency(attotime period);
 
@@ -823,9 +829,17 @@ public:
      */
     void clk_io_w(uint8_t data);
 
+    /**
+     * Changes the clock source for EXCLK mode to run from the crystal timer.
+     
+     * By default, the async timer unit is switched to a mode where the clock source
+     * must be manually clocked into tosc_w(). As this will likely happen thousands
+     * or millions of times per second, it's best to use this mode.
+     */
+    void set_exclk_source_to_crystal_timer(bool exclk_from_crystal) { m_exclk_from_crystal = exclk_from_crystal; }
+
     template <typename T> void set_child_timer_tag(T &&tag) { m_child_timer.set_tag(std::forward<T>(tag)); }
     
-
     // device-level overrides
 	virtual void device_start() override ATTR_COLD;
 	virtual void device_reset() override ATTR_COLD;
@@ -838,13 +852,17 @@ protected:
     bool m_tosc_last_state;
     bool m_clk_io;
 
+    bool m_exclk_from_crystal;
+
     required_device<avr8_10bit_prescaler_device> m_prescaler;
     required_device<avr8_generic_fakertc_timer_device> m_child_timer;
 
     emu_timer *m_external_crystal_timer;
     attotime m_external_crystal_period;
 
+    TIMER_CALLBACK_MEMBER(external_crystal_tick);
     void update_crystal_state();
+    inline bool using_external_crystal() { return m_as2 && (m_exclk || m_exclk_from_crystal); }
 
 };
 

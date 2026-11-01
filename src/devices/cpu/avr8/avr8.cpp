@@ -1895,13 +1895,14 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 	megaavr_classic_base_device::device_add_mconfig(config);
 
 	auto &ocm(AVR8_CLASSIC_OUTPUT_COMPARE_MODULATOR(config, "oc0a_oc1c_ocm", 0));
-	// TODO: route input from bits
+	// TODO: route input from PORTx
 	ocm.gpio_bit_w_cb().set(&atmegaxu4_base_device::set_gpio_bit<GPIOB, 7>, "set_gpio_bit_pb7");
 
 	// Timer 0 signals: OC0A = PB7, OC0B = PD0, T0 = PD7
 	auto timer0 = subdevice<avr8_megaavr_timer_0_device>("timer0");
 	timer0->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_a_w));
-	timer0->oc_en_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_en_a));
+	timer0->oc_en_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_en_a_w));
+	timer0->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_toggle_a_w));
 	// TODO: toggle routing. will be useless otherwise
 
 	timer0->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegaxu4_base_device::set_gpio_bit<GPIOD, 0>, "set_gpio_bit_pd0");
@@ -1915,7 +1916,9 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 	timer1->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegaxu4_base_device::set_gpio_bit<GPIOB, 6>, "set_gpio_bit_pb6");
 	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegaxu4_base_device::toggle_gpio_bit<GPIOB, 5>, "toggle_gpio_bit_pb6");
 	timer1->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_b_w));
-	timer1->oc_en_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_en_b));
+	timer1->oc_en_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_en_b_w));
+	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_toggle_b_w));
+	timer1->int_cb<AVR8_TIMER_INTCHANNEL_OC_C>().set(FUNC(atmegaxu4_base_device::int_line_w<INTIDX_OCF1C>));
 
 	// Timer 3: 16-bit similar to timer 1. Important difference is no Tx pin.
 	// Outputs: OC3A = PC6. There is no T3 pin.
@@ -1954,8 +1957,8 @@ void atmegax0_base_device::device_add_mconfig(machine_config &config)
 	// Timer 0 signals: OC0A = PB7 (via OCM), OC0B = PG5, T0 = PD7
 	auto timer0 = subdevice<avr8_megaavr_timer_0_device>("timer0");
 	timer0->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_a_w));
-	// TODO: toggle for OC0A
-	timer0->oc_en_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_en_a));
+	timer0->oc_en_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_en_a_w));
+	timer0->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_toggle_a_w));
 	timer0->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax0_base_device::set_gpio_bit<GPIOG, 5>, "set_gpio_bit_pg5");
 	timer0->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax0_base_device::toggle_gpio_bit<GPIOG, 5>, "toggle_gpio_bit_pg5");
 	// TODO: set T0
@@ -1968,8 +1971,9 @@ void atmegax0_base_device::device_add_mconfig(machine_config &config)
 	timer1->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax0_base_device::set_gpio_bit<GPIOB, 6>, "set_gpio_bit_pb6");
 	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax0_base_device::toggle_gpio_bit<GPIOB, 5>, "toggle_gpio_bit_pb6");
 	timer1->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_b_w));
-	// TODO: toggle for OC1C
-	timer1->oc_en_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_en_b));
+	timer1->oc_en_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_en_b_w));
+	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_toggle_b_w));
+	timer1->int_cb<AVR8_TIMER_INTCHANNEL_OC_C>().set(FUNC(atmegax0_base_device::int_line_w<INTIDX_OCF1C>));
 	// TODO: set T1
 	
 	// Timer 2: 8-bit fake RTC
@@ -2114,13 +2118,13 @@ const avr8_base_device::interrupt_condition avr8_base_device::s_int_conditions[]
 {
 	// irq id        vector            dev handled?  irq reg    irq reg mask        flag reg  flag reg mask
 	{ INTIDX_SPI,    AVR8_INT_SPI_STC, 0, 			 SPCR,      SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK   },
-	{ INTIDX_OCF0B,  AVR8_INT_T0COMPB, 1, 			 TIMSK0,    TIMSK0_OCIE0B_MASK, TIFR0,    TIFR0_OCF0B_MASK },
-	{ INTIDX_OCF0A,  AVR8_INT_T0COMPA, 1, 			 TIMSK0,    TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK },
-	{ INTIDX_TOV0,   AVR8_INT_T0OVF,   1,			 TIMSK0,    TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK  },
-	{ INTIDX_ICF1,   AVR8_INT_T1CAPT,  0, 			 TIMSK1,    TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK  },
-	{ INTIDX_OCF1B,  AVR8_INT_T1COMPB, 1, 			 TIMSK1,    TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK },
-	{ INTIDX_OCF1A,  AVR8_INT_T1COMPA, 1, 			 TIMSK1,    TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK },
-	{ INTIDX_TOV1,   AVR8_INT_T1OVF,   1, 			 TIMSK1,    TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK  },
+	{ INTIDX_OCF0B,  AVR8_INT_T0COMPB, 1, 			 0,        0,                  0,        0, },
+	{ INTIDX_OCF0A,  AVR8_INT_T0COMPA, 1, 			 0,        0,                  0,        0, },
+	{ INTIDX_TOV0,   AVR8_INT_T0OVF,   1,			 0,        0,                  0,        0, },
+	{ INTIDX_ICF1,   AVR8_INT_T1CAPT,  0, 			 TIMSK1,   TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK  },
+	{ INTIDX_OCF1B,  AVR8_INT_T1COMPB, 1, 			 0,        0,                  0,        0, },
+	{ INTIDX_OCF1A,  AVR8_INT_T1COMPA, 1, 			 0,        0,                  0,        0, },
+	{ INTIDX_TOV1,   AVR8_INT_T1OVF,   1, 			 0,        0,                  0,        0, },
 	{ INTIDX_OCF2B,  AVR8_INT_T2COMPB, 0, 			 TIMSK2,    TIMSK2_OCIE2B_MASK, TIFR2,    TIFR2_OCF2B_MASK },
 	{ INTIDX_OCF2A,  AVR8_INT_T2COMPA, 0, 			 TIMSK2,    TIMSK2_OCIE2A_MASK, TIFR2,    TIFR2_OCF2A_MASK },
 	{ INTIDX_TOV2,   AVR8_INT_T2OVF,   0, 			 TIMSK2,    TIMSK2_TOIE2_MASK,  TIFR2,    TIFR2_TOV2_MASK  },
@@ -2354,14 +2358,15 @@ const avr8_base_device::interrupt_condition avr8_base_device::s_mega32u4_int_con
 	{ INTIDX_OCF0A,  ATMEGA32U4_INT_T0COMPA, 1,            TIMSK0,   TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK, },
 	{ INTIDX_TOV0,   ATMEGA32U4_INT_T0OVF,   1,            TIMSK0,   TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK, },
 	{ INTIDX_ICF1,   ATMEGA32U4_INT_T1CAPT,  0,            TIMSK1,   TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK, },
-	{ INTIDX_OCF1B,  ATMEGA32U4_INT_T1COMPB, 1,            TIMSK1,   TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK, },
-	{ INTIDX_OCF1A,  ATMEGA32U4_INT_T1COMPA, 1,            TIMSK1,   TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK, },
-	{ INTIDX_TOV1,   ATMEGA32U4_INT_T1OVF,   1,            TIMSK1,   TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK, },
+	{ INTIDX_OCF1C,  ATMEGA32U4_INT_T1COMPC, 1,            0,        0,                  0,        0, },
+	{ INTIDX_OCF1B,  ATMEGA32U4_INT_T1COMPB, 1,            0,        0,                  0,        0, },
+	{ INTIDX_OCF1A,  ATMEGA32U4_INT_T1COMPA, 1,            0,        0,                  0,        0, },
+	{ INTIDX_TOV1,   ATMEGA32U4_INT_T1OVF,   1,            0,        0,                  0,        0, },
 	// { INTIDX_ICF3,   ATMEGA32U4_INT_T1CAPT,  0,            TIMSK1,   TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK, },
 	{ INTIDX_OCF3C,  ATMEGA32U4_INT_T3COMPC, 1,            0,        0,                  0,        0, },
-	{ INTIDX_OCF3B,  ATMEGA32U4_INT_T3COMPB, 1,            TIMSK1,   TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK, },
-	{ INTIDX_OCF3A,  ATMEGA32U4_INT_T3COMPA, 1,            TIMSK1,   TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK, },
-	{ INTIDX_TOV3,   ATMEGA32U4_INT_T3OVF,   1,            TIMSK1,   TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK, },
+	{ INTIDX_OCF3B,  ATMEGA32U4_INT_T3COMPB, 1,            0,        0,                  0,        0, },
+	{ INTIDX_OCF3A,  ATMEGA32U4_INT_T3COMPA, 1,            0,        0,                  0,        0, },
+	{ INTIDX_TOV3,   ATMEGA32U4_INT_T3OVF,   1,            0,        0,                  0,        0, },
 	{ INTIDX_PCINT0, ATMEGA32U4_INT_PCINT0,  0,            PCICR,    PCICR_PCIE0_MASK,   PCIFR,    PCIFR_PCIF0_MASK, },
 	{ INTIDX_INT0,   ATMEGA32U4_INT_INT0,    0,            EIMSK,    EIMSK_INT0_MASK,    EIFR,     EIFR_INTF0_MASK, },
 	{ INTIDX_INT1,   ATMEGA32U4_INT_INT1,    0,            EIMSK,    EIMSK_INT1_MASK,    EIFR,     EIFR_INTF1_MASK, },
@@ -2383,13 +2388,14 @@ const avr8_base_device::interrupt_condition avr8_base_device::s_mega640_int_cond
 {
 	// irq id        vector                  dev handled?  irq reg   irq reg mask        flag reg  flag reg mask
 	{ INTIDX_SPI,  	 ATMEGA640_INT_SPI_STC,  0, 		   SPCR,     SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK },
-	{ INTIDX_OCF0B,  ATMEGA640_INT_T0COMPB,  1, 		   TIMSK0,   TIMSK0_OCIE0B_MASK, TIFR0,    TIFR0_OCF0B_MASK },
-	{ INTIDX_OCF0A,  ATMEGA640_INT_T0COMPA,  1, 		   TIMSK0,   TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK },
-	{ INTIDX_TOV0,   ATMEGA640_INT_T0OVF,  	 1, 		   TIMSK0,   TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK },
+	{ INTIDX_OCF0B,  ATMEGA640_INT_T0COMPB,  1, 		   0,        0,                  0,        0, },
+	{ INTIDX_OCF0A,  ATMEGA640_INT_T0COMPA,  1, 		   0,        0,                  0,        0, },
+	{ INTIDX_TOV0,   ATMEGA640_INT_T0OVF,  	 1, 		   0,        0,                  0,        0, },
 	{ INTIDX_ICF1, 	 ATMEGA640_INT_T1CAPT,   0, 		   TIMSK1,   TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK },
-	{ INTIDX_OCF1B,  ATMEGA640_INT_T1COMPB,  1, 		   TIMSK1,   TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK },
-	{ INTIDX_OCF1A,  ATMEGA640_INT_T1COMPA,  1, 		   TIMSK1,   TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK },
-	{ INTIDX_TOV1,   ATMEGA640_INT_T1OVF,    1, 		   TIMSK1,   TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK },
+	{ INTIDX_OCF1C,  ATMEGA640_INT_T1COMPC,  1, 		   0,        0,                  0,        0, },
+	{ INTIDX_OCF1B,  ATMEGA640_INT_T1COMPB,  1, 		   0,        0,                  0,        0, },
+	{ INTIDX_OCF1A,  ATMEGA640_INT_T1COMPA,  1, 		   0,        0,                  0,        0, },
+	{ INTIDX_TOV1,   ATMEGA640_INT_T1OVF,    1, 		   0,        0,                  0,        0, },
 	{ INTIDX_OCF2B,  ATMEGA640_INT_T2COMPB,  0, 		   TIMSK2,   TIMSK2_OCIE2B_MASK, TIFR2,    TIFR2_OCF2B_MASK },
 	{ INTIDX_OCF2A,  ATMEGA640_INT_T2COMPA,  0, 		   TIMSK2,   TIMSK2_OCIE2A_MASK, TIFR2,    TIFR2_OCF2A_MASK },
 	{ INTIDX_TOV2,   ATMEGA640_INT_T2OVF,    0, 		   TIMSK2,   TIMSK2_TOIE2_MASK,  TIFR2,    TIFR2_TOV2_MASK },
@@ -2417,13 +2423,13 @@ const avr8_base_device::interrupt_condition avr8_base_device::s_mega644_int_cond
 {
 	//  irq id        vector                  dev handled?  irq reg   irq reg mask        flag reg  flag reg mask
 	{ INTIDX_SPI,     ATMEGA644_INT_SPI_STC,  0, 			SPCR,     SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK },
-	{ INTIDX_OCF0B,   ATMEGA644_INT_T0COMPB,  1, 			TIMSK0,   TIMSK0_OCIE0B_MASK, TIFR0,    TIFR0_OCF0B_MASK },
-	{ INTIDX_OCF0A,   ATMEGA644_INT_T0COMPA,  1, 			TIMSK0,   TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK },
-	{ INTIDX_TOV0,    ATMEGA644_INT_T0OVF,    1, 			TIMSK0,   TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK },
+	{ INTIDX_OCF0B,   ATMEGA644_INT_T0COMPB,  1, 			0,        0,                  0,        0, },
+	{ INTIDX_OCF0A,   ATMEGA644_INT_T0COMPA,  1, 			0,        0,                  0,        0, },
+	{ INTIDX_TOV0,    ATMEGA644_INT_T0OVF,    1, 			0,        0,                  0,        0, },
 	{ INTIDX_ICF1,    ATMEGA644_INT_T1CAPT,   0, 			TIMSK1,   TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK },
-	{ INTIDX_OCF1B,   ATMEGA644_INT_T1COMPB,  1, 			TIMSK1,   TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK },
-	{ INTIDX_OCF1A,   ATMEGA644_INT_T1COMPA,  1, 			TIMSK1,   TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK },
-	{ INTIDX_TOV1,    ATMEGA644_INT_T1OVF,    1, 			TIMSK1,   TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK },
+	{ INTIDX_OCF1B,   ATMEGA644_INT_T1COMPB,  1, 			0,        0,                  0,        0, },
+	{ INTIDX_OCF1A,   ATMEGA644_INT_T1COMPA,  1, 			0,        0,                  0,        0, },
+	{ INTIDX_TOV1,    ATMEGA644_INT_T1OVF,    1, 			0,        0,                  0,        0, },
 	{ INTIDX_OCF2B,   ATMEGA644_INT_T2COMPB,  0, 			TIMSK2,   TIMSK2_OCIE2B_MASK, TIFR2,    TIFR2_OCF2B_MASK },
 	{ INTIDX_OCF2A,   ATMEGA644_INT_T2COMPA,  0, 			TIMSK2,   TIMSK2_OCIE2A_MASK, TIFR2,    TIFR2_OCF2A_MASK },
 	{ INTIDX_TOV2,    ATMEGA644_INT_T2OVF,    0, 			TIMSK2,   TIMSK2_TOIE2_MASK,  TIFR2,    TIFR2_TOV2_MASK },

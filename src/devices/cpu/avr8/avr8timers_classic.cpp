@@ -98,6 +98,19 @@
     but those apply to the specific registers. In general, TCNTx will obey these
     rules exactly.
 
+    Output compare signals:
+    -----------------------------------------------------------------
+
+    When the COMxx modes are switched in the timers to a non-zero mode, the following happens:
+
+    1. Whatever value was being fed from the PORTx register gets latched into place somewhere.
+
+    2. The PORTx line is disconnected from the GPIO driver entirely; either the output compare signal
+       or compare modulator will be fed to the output matrix, but only when the pin is set as an output
+       (the GPIO mux still obeys DDRx settings).
+
+    3. When COMxx is set back to 0, the PORTx bit is reconnected to its output immediately.
+
     Output compare modulator:
     -----------------------------------------------------------------
 
@@ -423,6 +436,8 @@ void avr8_output_compare_modulator_device::update_outputs()
         return;
     }
 
+    // in all other cases, the active output compare channel
+    // feeds the output with the appropriate value
     if (m_compare_out_en_a) m_gpio_bit_w_wb(m_compare_out_a);
     if (m_compare_out_en_b) m_gpio_bit_w_wb(m_compare_out_b);
 }
@@ -433,10 +448,30 @@ void avr8_output_compare_modulator_device::compare_out_a_w(uint8_t data)
     update_outputs();
 }
 
-void avr8_output_compare_modulator_device::compare_out_en_a(uint8_t data)
+void avr8_output_compare_modulator_device::compare_out_en_a_w(uint8_t data)
 {
+    bool old = m_compare_out_en_a;
     m_compare_out_en_a = data != 0;
+
+    if (!old && m_compare_out_en_a && !m_compare_out_en_b)
+    {
+        // when one output channel is enabled, the existing PORTx bit is latched
+        // but no longer forwarded.
+        // not sure of behavior when both COMxx signals are set at the same time...
+        m_compare_out_a = m_port_bit;
+    }
+    
     update_outputs();
+}
+
+void avr8_output_compare_modulator_device::compare_out_toggle_a_w(uint8_t _)
+{
+    if (m_compare_out_en_a && !m_compare_out_en_b)
+    {
+        // this value is not propagated back to the PORTx bit
+        m_compare_out_a = !m_compare_out_a;
+        update_outputs();
+    }
 }
 
 void avr8_output_compare_modulator_device::compare_out_b_w(uint8_t data)
@@ -445,10 +480,30 @@ void avr8_output_compare_modulator_device::compare_out_b_w(uint8_t data)
     update_outputs();
 }
 
-void avr8_output_compare_modulator_device::compare_out_en_b(uint8_t data)
+void avr8_output_compare_modulator_device::compare_out_en_b_w(uint8_t data)
 {
+    bool old = m_compare_out_en_b;
     m_compare_out_en_b = data != 0;
+
+    if (!old && m_compare_out_en_b && !m_compare_out_en_a)
+    {
+        // when one output channel is enabled, the existing PORTx bit is latched
+        // but no longer forwarded.
+        // not sure of behavior when both COMxx signals are set at the same time...
+        m_compare_out_b = m_port_bit;
+    }
+    
     update_outputs();
+}
+
+void avr8_output_compare_modulator_device::compare_out_toggle_b_w(uint8_t _)
+{
+    if (!m_compare_out_en_a && m_compare_out_en_b)
+    {
+        // this value is not propagated back to the PORTx bit
+        m_compare_out_b = !m_compare_out_b;
+        update_outputs();
+    }
 }
 
 void avr8_output_compare_modulator_device::port_bit_w(uint8_t data)
@@ -456,7 +511,6 @@ void avr8_output_compare_modulator_device::port_bit_w(uint8_t data)
     m_port_bit = data != 0;
     update_outputs();
 }
-
 
 ///////////////////////////////////////////////////////////////
 // COMMON 8-BIT TIMER FUNCTIONS
@@ -1250,8 +1304,21 @@ void avr8_generic_t1_timer_device::tccr_b_w(uint8_t data)
     cs_w(BIT(data,0,3));
     wgm_w(BIT(wgm_r(), 0, 2) | (BIT(data, 3, 2) << 2));
 
-    // TODO: bit 7 = ICNC1 (noise canceller)
-    // TODO: bit 6 = ICES1
+    if (BIT(data, 7))
+    {
+        // TODO: bit 7 = ICNC1 (noise canceller)
+        logerror("%s (%s): TCCRxB: attempt to turn on noise canceller (not supported yet)\n",
+                 machine().describe_context(),
+                 tag());
+    }
+
+    if (BIT(data, 6))
+    {
+        // TODO: bit 6 = ICES1 (what edge of ICP1 triggers the capture event)
+        logerror("%s (%s): TCCRxB: attempt to set ICES1 to rising edge (not supported yet)\n",
+                 machine().describe_context(),
+                 tag());
+    }
 }
 
 uint8_t avr8_generic_t1_timer_device::tccr_b_r()
@@ -1384,9 +1451,8 @@ avr8_fakertc_async_controller_device::avr8_fakertc_async_controller_device(const
 
 void avr8_fakertc_async_controller_device::device_add_mconfig(machine_config &config)
 {
-    AVR8_CLASSIC_10BIT_PRESCALER(config, "prescaler", 0);
+    AVR8_CLASSIC_10BIT_PRESCALER(config, m_prescaler, 0);
 }
-
 
 void avr8_fakertc_async_controller_device::device_start()
 {
@@ -1395,8 +1461,8 @@ void avr8_fakertc_async_controller_device::device_start()
     save_item(NAME(m_exclk));
     save_item(NAME(m_tosc_last_state));
     save_item(NAME(m_clk_io));
-
-    // TODO: create but don't start the external crystal timer
+    save_item(NAME(m_exclk_from_crystal));
+    m_external_crystal_timer = timer_alloc(FUNC(avr8_fakertc_async_controller_device::external_crystal_tick), this);
 }
 
 void avr8_fakertc_async_controller_device::device_reset()
@@ -1416,6 +1482,7 @@ void avr8_fakertc_async_controller_device::clk_io_w(uint8_t data)
     // in synchronous mode, the rising edge of the clock ticks the timer
     if (!m_as2 && m_clk_io)
     {
+        m_prescaler->tick();
         m_child_timer->tick();
         return;
     }
@@ -1431,8 +1498,9 @@ void avr8_fakertc_async_controller_device::tosc_w(uint8_t data)
     if (new_state == m_tosc_last_state) return;
     m_tosc_last_state = new_state;
 
-    if (m_as2 && m_exclk && m_tosc_last_state)
+    if (m_as2 && !using_external_crystal() && m_tosc_last_state)
     {
+        m_prescaler->tick();
         m_child_timer->tick();
     }
 }
@@ -1456,5 +1524,15 @@ void avr8_fakertc_async_controller_device::exclk_w(uint8_t data)
 
 void avr8_fakertc_async_controller_device::update_crystal_state()
 {
-    m_external_crystal_timer->adjust((!m_as2 || m_exclk) ? attotime::never : m_external_crystal_period);
+    m_external_crystal_timer->adjust(using_external_crystal() ? m_external_crystal_period : attotime::never);
+}
+
+TIMER_CALLBACK_MEMBER(avr8_fakertc_async_controller_device::external_crystal_tick)
+{
+    if (!using_external_crystal()) return;
+
+    m_prescaler->tick();
+    m_child_timer->tick();
+
+    update_crystal_state();
 }
