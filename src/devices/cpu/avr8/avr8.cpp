@@ -790,7 +790,8 @@ void megaavr_classic_base_device::megaavr_classic_base_internal_map(address_map 
 	// 0x0083: reserved
 	map(0x0084, 0x0084).rw("timer1", FUNC(avr8_generic_t1_timer_device::tcnt_l_r), FUNC(avr8_generic_t1_timer_device::tcnt_l_w));
 	map(0x0085, 0x0085).rw("timer1", FUNC(avr8_generic_t1_timer_device::tcnt_h_r), FUNC(avr8_generic_t1_timer_device::tcnt_h_w));
-	// TODO: ICR1L, ICR1H
+	map(0x0086, 0x0086).rw("timer1", FUNC(avr8_generic_t1_timer_device::icr_l_r), FUNC(avr8_generic_t1_timer_device::icr_l_w));
+	map(0x0087, 0x0087).rw("timer1", FUNC(avr8_generic_t1_timer_device::icr_h_r), FUNC(avr8_generic_t1_timer_device::icr_h_w));
 	map(0x0088, 0x0088).rw("timer1", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_A>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_A>));
 	map(0x0089, 0x0089).rw("timer1", FUNC(avr8_generic_t1_timer_device::ocr_h_r<AVR8_TIMER_CMPCHANNEL_OC_A>), FUNC(avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_A>));
 	map(0x008a, 0x008a).rw("timer1", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_B>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_B>));
@@ -938,7 +939,8 @@ void atmegaxu4_base_device::atmegaxu4_base_internal_map(address_map &map)
 	// 0x0093: reserved
 	map(0x0094, 0x0094).rw("timer3", FUNC(avr8_generic_t1_timer_device::tcnt_l_r), FUNC(avr8_generic_t1_timer_device::tcnt_l_w));
 	map(0x0095, 0x0095).rw("timer3", FUNC(avr8_generic_t1_timer_device::tcnt_h_r), FUNC(avr8_generic_t1_timer_device::tcnt_h_w));
-	// TODO: 0x0096, 0x0097: ICR
+	map(0x0096, 0x0096).rw("timer3", FUNC(avr8_generic_t1_timer_device::icr_l_r), FUNC(avr8_generic_t1_timer_device::icr_l_w));
+	map(0x0097, 0x0097).rw("timer3", FUNC(avr8_generic_t1_timer_device::icr_h_r), FUNC(avr8_generic_t1_timer_device::icr_h_w));
 	map(0x0098, 0x0098).rw("timer3", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_A>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_A>));
 	map(0x0099, 0x0099).rw("timer3", FUNC(avr8_generic_t1_timer_device::ocr_h_r<AVR8_TIMER_CMPCHANNEL_OC_A>), FUNC(avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_A>));
 	map(0x009a, 0x009a).rw("timer3", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_B>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_B>));
@@ -1054,7 +1056,8 @@ void atmegax0_base_device::atmegax0_base_internal_map(address_map &map)
 	// 0x0093: reserved
 	map(0x0094, 0x0094).rw("timer3", FUNC(avr8_generic_t1_timer_device::tcnt_l_r), FUNC(avr8_generic_t1_timer_device::tcnt_l_w));
 	map(0x0095, 0x0095).rw("timer3", FUNC(avr8_generic_t1_timer_device::tcnt_h_r), FUNC(avr8_generic_t1_timer_device::tcnt_h_w));
-	// TODO: 0x0096, 0x0097: ICR
+	map(0x0096, 0x0096).rw("timer3", FUNC(avr8_generic_t1_timer_device::icr_l_r), FUNC(avr8_generic_t1_timer_device::icr_l_w));
+	map(0x0097, 0x0097).rw("timer3", FUNC(avr8_generic_t1_timer_device::icr_h_r), FUNC(avr8_generic_t1_timer_device::icr_h_w));
 	map(0x0098, 0x0098).rw("timer3", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_A>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_A>));
 	map(0x0099, 0x0099).rw("timer3", FUNC(avr8_generic_t1_timer_device::ocr_h_r<AVR8_TIMER_CMPCHANNEL_OC_A>), FUNC(avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_A>));
 	map(0x009a, 0x009a).rw("timer3", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_B>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_B>));
@@ -1071,7 +1074,8 @@ void atmegax0_base_device::atmegax0_base_internal_map(address_map &map)
 	// 0x0093: reserved
 	map(0x00a4, 0x00a4).rw("timer4", FUNC(avr8_generic_t1_timer_device::tcnt_l_r), FUNC(avr8_generic_t1_timer_device::tcnt_l_w));
 	map(0x00a5, 0x00a5).rw("timer4", FUNC(avr8_generic_t1_timer_device::tcnt_h_r), FUNC(avr8_generic_t1_timer_device::tcnt_h_w));
-	// TODO: 0x00a6, 0x00a7: ICR
+	map(0x00a6, 0x00a6).rw("timer4", FUNC(avr8_generic_t1_timer_device::icr_l_r), FUNC(avr8_generic_t1_timer_device::icr_l_w));
+	map(0x00a7, 0x00a7).rw("timer4", FUNC(avr8_generic_t1_timer_device::icr_h_r), FUNC(avr8_generic_t1_timer_device::icr_h_w));
 	map(0x00a8, 0x00a8).rw("timer4", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_A>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_A>));
 	map(0x00a9, 0x00a9).rw("timer4", FUNC(avr8_generic_t1_timer_device::ocr_h_r<AVR8_TIMER_CMPCHANNEL_OC_A>), FUNC(avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_A>));
 	map(0x00aa, 0x00aa).rw("timer4", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_B>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_B>));
@@ -1110,7 +1114,8 @@ void atmegax0_base_device::atmegax0_base_internal_map(address_map &map)
 	// 0x0123: reserved
 	map(0x0124, 0x0124).rw("timer5", FUNC(avr8_generic_t1_timer_device::tcnt_l_r), FUNC(avr8_generic_t1_timer_device::tcnt_l_w));
 	map(0x0125, 0x0125).rw("timer5", FUNC(avr8_generic_t1_timer_device::tcnt_h_r), FUNC(avr8_generic_t1_timer_device::tcnt_h_w));
-	// TODO: 0x0126, 0x0127: ICR
+	map(0x0126, 0x0126).rw("timer5", FUNC(avr8_generic_t1_timer_device::icr_l_r), FUNC(avr8_generic_t1_timer_device::icr_l_w));
+	map(0x0127, 0x0127).rw("timer5", FUNC(avr8_generic_t1_timer_device::icr_h_r), FUNC(avr8_generic_t1_timer_device::icr_h_w));
 	map(0x0128, 0x0128).rw("timer5", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_A>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_A>));
 	map(0x0129, 0x0129).rw("timer5", FUNC(avr8_generic_t1_timer_device::ocr_h_r<AVR8_TIMER_CMPCHANNEL_OC_A>), FUNC(avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_A>));
 	map(0x012a, 0x012a).rw("timer5", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_B>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_B>));

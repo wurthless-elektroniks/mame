@@ -704,6 +704,11 @@ public:
     template <uint8_t Channel> void ocr_l_w(uint8_t data); // writes temp reg contents + lower 8 bits to OCR buffer reg
     template <uint8_t Channel> uint8_t ocr_l_r() { return BIT(m_ocr_buf[Channel], 0, 8); }
    
+    void icr_h_w(uint8_t data);
+    uint8_t icr_h_r();
+    void icr_l_w(uint8_t data);
+    uint8_t icr_l_r(); 
+
     void tccr_b_w(uint8_t data);
     uint8_t tccr_b_r();
     void tccr_c_w(uint8_t data);
@@ -715,6 +720,9 @@ public:
 
     virtual void wgm_w(uint8_t data) override;
     virtual void cs_w(uint8_t data) override;
+
+	virtual void device_start() override ATTR_COLD;
+	virtual void device_reset() override ATTR_COLD;
 protected:
     avr8_generic_t1_timer_device(const machine_config &mconfig,
         const char *tag,
@@ -723,6 +731,8 @@ protected:
         const device_type device_type);
 
     uint8_t m_temp; // temporary register for 16-bit accesses
+
+    uint16_t m_icr;
     
     bool m_ocr_c_enabled; // true only on devices that have 3-channel 16-bit timers
 
@@ -734,11 +744,15 @@ protected:
     virtual bool should_reload_ocrs() override;
 
     void advance_pwm_common(uint16_t top);
-
     void advance_pwm_8bit();
     void advance_pwm_9bit();
     void advance_pwm_10bit();
+    void advance_fast_pwm_common(uint16_t top);
+    void advance_fast_pwm_8bit();
+    void advance_fast_pwm_9bit();
+    void advance_fast_pwm_10bit();
     void advance_ctc_ocr_a();
+    void advance_fast_pwm_icr();
     void advance_fast_pwm_ocr_a();
 };
 

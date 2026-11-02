@@ -914,7 +914,6 @@ avr8_generic_t1_timer_device::avr8_generic_t1_timer_device(const machine_config 
     avr8_generic_t1_timer_device(mconfig, tag, owner, clock, AVR8_CLASSIC_GENERIC_TIMER_1);
 }
 
-
 avr8_generic_t1_timer_device::avr8_generic_t1_timer_device(const machine_config &mconfig,
     const char *tag,
     device_t *owner,
@@ -923,6 +922,18 @@ avr8_generic_t1_timer_device::avr8_generic_t1_timer_device(const machine_config 
     avr8_base_timer_device(mconfig, device_type, tag, owner, clock)
 { }
 
+void avr8_generic_t1_timer_device::device_start()
+{
+    avr8_base_timer_device::device_start();
+    save_item(NAME(m_icr));
+}
+
+void avr8_generic_t1_timer_device::device_reset()
+{
+    avr8_base_timer_device::device_reset();
+    m_icr = 0;
+} 
+
 void avr8_generic_t1_timer_device::install_wgm_callbacks()
 {
     m_wgm_cbs[GENERIC_TIMER1_WGM_NORMAL] = timer_func(&avr8_generic_t1_timer_device::advance_normal, this);
@@ -930,17 +941,16 @@ void avr8_generic_t1_timer_device::install_wgm_callbacks()
     m_wgm_cbs[GENERIC_TIMER1_WGM_PWM_9_BIT] = timer_func(&avr8_generic_t1_timer_device::advance_pwm_9bit, this);
     m_wgm_cbs[GENERIC_TIMER1_WGM_PWM_10_BIT] = timer_func(&avr8_generic_t1_timer_device::advance_pwm_10bit, this);
     m_wgm_cbs[GENERIC_TIMER1_WGM_CTC] = timer_func(&avr8_generic_t1_timer_device::advance_ctc_ocr_a, this);
-    // TODO: GENERIC_TIMER1_WGM_CTC
-    // GENERIC_TIMER1_WGM_FAST_PWM_8_BIT  = 0b0101, // fast PWM, 8-bit: count 0x0000-0x00ff
-    // GENERIC_TIMER1_WGM_FAST_PWM_9_BIT  = 0b0110, // fast PWM, 9-bit: count 0x0000-0x01ff
-    // GENERIC_TIMER1_WGM_FAST_PWM_10_BIT = 0b0111, // fast PWM, 10-bit: count 0x0000-0x03ff
+    m_wgm_cbs[GENERIC_TIMER1_WGM_FAST_PWM_8_BIT] = timer_func(&avr8_generic_t1_timer_device::advance_fast_pwm_8bit, this);
+    m_wgm_cbs[GENERIC_TIMER1_WGM_FAST_PWM_9_BIT] = timer_func(&avr8_generic_t1_timer_device::advance_fast_pwm_9bit, this);
+    m_wgm_cbs[GENERIC_TIMER1_WGM_FAST_PWM_10_BIT] = timer_func(&avr8_generic_t1_timer_device::advance_fast_pwm_10bit, this);
     // GENERIC_TIMER1_WGM_PWM_PFC_ICR1    = 0b1000, // phase/frequency correct; TOP = ICR1
     // GENERIC_TIMER1_WGM_PWM_PFC_OCR1A   = 0b1001, // phase/frequency correct; TOP = OCR1A
     // GENERIC_TIMER1_WGM_PWM_ICR1        = 0b1010, // phase-correct; TOP = ICR1
     // GENERIC_TIMER1_WGM_PWM_OCR1A       = 0b1011, // phase-correct; TOP = OCR1A
     // GENERIC_TIMER1_WGM_CTC_ICR1        = 0b1100, // CTC: count to ICR1
     // // 0b1101: reserved/illegal
-    // GENERIC_TIMER1_WGM_FAST_PWM_ICR1   = 0b1110, // fast PWM; count to ICR1
+    m_wgm_cbs[GENERIC_TIMER1_WGM_FAST_PWM_ICR1] = timer_func(&avr8_generic_t1_timer_device::advance_fast_pwm_icr, this);
     m_wgm_cbs[GENERIC_TIMER1_WGM_FAST_PWM_OCRA] = timer_func(&avr8_generic_t1_timer_device::advance_fast_pwm_ocr_a, this);
 }
 
@@ -1084,6 +1094,61 @@ void avr8_generic_t1_timer_device::advance_pwm_10bit()
     advance_pwm_common(0x3ff);
 }
 
+void avr8_generic_t1_timer_device::advance_fast_pwm_common(uint16_t top)
+{
+    bool will_increment = true;
+
+    if (is_compare_a())
+    {
+        raise_ocf_a();
+        update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_A>();
+    }
+
+    if (is_compare_b())
+    {
+        raise_ocf_b();
+        update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_B>();
+    }
+
+    if (m_ocr_c_enabled && is_compare_c())
+    {
+        raise_ocf_c();
+        update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_C>();
+    }
+
+    if (is_min_count())
+    {
+        update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_A>();
+        update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_B>();
+        if (m_ocr_c_enabled) update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_C>();
+    }
+
+    if ((m_tcnt & max_count()) == top)
+    {
+        raise_tov();
+        m_tcnt = 0;
+        will_increment = false;
+    }
+
+    if (will_increment) m_tcnt = next_count();
+}
+
+void avr8_generic_t1_timer_device::advance_fast_pwm_8bit()
+{
+    advance_fast_pwm_common(0xff);
+}
+
+void avr8_generic_t1_timer_device::advance_fast_pwm_9bit()
+{
+    advance_fast_pwm_common(0x1ff);
+}
+
+void avr8_generic_t1_timer_device::advance_fast_pwm_10bit()
+{
+    advance_fast_pwm_common(0x3ff);
+}
+
+
 void avr8_generic_t1_timer_device::advance_ctc_ocr_a()
 {
     bool will_increment = true;
@@ -1165,6 +1230,11 @@ void avr8_generic_t1_timer_device::advance_fast_pwm_ocr_a()
 
     // in all other cases, just keep ticking the timer upwards
     m_tcnt = next_count();
+}
+
+void avr8_generic_t1_timer_device::advance_fast_pwm_icr()
+{
+    advance_fast_pwm_common(m_icr);
 }
 
 bool avr8_generic_t1_timer_device::com_mode_allows_output(uint8_t channel)
@@ -1292,7 +1362,6 @@ template void avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_C>(
 template <uint8_t Channel>
 void avr8_generic_t1_timer_device::ocr_l_w(uint8_t data)
 {
-    LOGMASKED(LOG_TIMER1, "%s: m_temp %02x\n", machine().describe_context(), m_temp);
     m_ocr_buf[Channel] = (m_temp << 8) | data;
     LOGMASKED(LOG_TIMER1, "%s: OCR %c switching to %04x\n", machine().describe_context(), 'A' + Channel, m_ocr_buf[Channel]);
 }
@@ -1300,6 +1369,29 @@ void avr8_generic_t1_timer_device::ocr_l_w(uint8_t data)
 template void avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_A>(uint8_t data);
 template void avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_B>(uint8_t data);
 template void avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_C>(uint8_t data);
+
+void avr8_generic_t1_timer_device::icr_h_w(uint8_t data)
+{
+    m_temp = data;
+}
+
+uint8_t avr8_generic_t1_timer_device::icr_h_r()
+{
+    return m_temp;
+}
+
+void avr8_generic_t1_timer_device::icr_l_w(uint8_t data)
+{
+    m_icr = (m_temp << 8) | data;
+    LOGMASKED(LOG_TIMER1, "%s: ICR switching to %04x\n", machine().describe_context(), m_icr);
+}
+
+uint8_t avr8_generic_t1_timer_device::icr_l_r()
+{
+    if (!machine().side_effects_disabled())
+        m_temp = BIT(m_icr, 8, 8);
+    return BIT(m_icr, 0, 8);
+}
 
 void avr8_generic_t1_timer_device::tccr_b_w(uint8_t data)
 {
@@ -1420,7 +1512,8 @@ void avr8_generic_fakertc_timer_device::tick()
     if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV32 && !m_upstream_prescaler->clkdiv_r<32>()) return;
     if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV64 && !m_upstream_prescaler->clkdiv_r<64>()) return;
     if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV128 && !m_upstream_prescaler->clkdiv_r<128>()) return;
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV256 && !m_upstream_prescaler->clkdiv_r<1024>()) return;
+    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV256 && !m_upstream_prescaler->clkdiv_r<256>()) return;
+    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV1024 && !m_upstream_prescaler->clkdiv_r<1024>()) return;
 
     if (should_reload_ocrs())
     {
@@ -1449,7 +1542,6 @@ void avr8_generic_fakertc_timer_device::tcnt_w(uint8_t data)
 
 void avr8_megaavr_fakertc_timer_device::tccr_b_w(uint8_t data)
 {
-    printf("TCCR2B: %02x\n", data);
     if (BIT(data,7)) force_oc0a();
     if (BIT(data,6)) force_oc0b();
     cs_w(BIT(data,0,3));
@@ -1582,7 +1674,6 @@ avr8_megaavr_fakertc_async_controller_device::avr8_megaavr_fakertc_async_control
 
 void avr8_megaavr_fakertc_async_controller_device::assr_w(uint8_t data)
 {
-    printf("assr: %02x\n", data);
     as2_w(BIT(data, 5));
     exclk_w(BIT(data, 6));
 }
