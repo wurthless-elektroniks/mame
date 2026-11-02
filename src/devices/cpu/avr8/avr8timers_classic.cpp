@@ -144,8 +144,10 @@ DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_TIMER_1, avr8_generic_t1_timer_device, "
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_10BIT_PRESCALER, avr8_10bit_prescaler_device, "avr8presc", "Classic AVR8 10-bit prescaler");
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_OUTPUT_COMPARE_MODULATOR, avr8_output_compare_modulator_device, "avr8ocm", "Classic AVR8 Output Compare Modulator");
 
-DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_FAKE_RTC_TIMER, avr8_generic_fakertc_timer_device, "cavr8frtct", "Classic AVR8 fake RTC timer");
-DEFINE_DEVICE_TYPE(AVR8_CLASSIC_FAKE_RTC_ASYNC_CONTROLLER, avr8_fakertc_async_controller_device, "cavr8frtcc", "Classic AVR8 fake RTC controller");
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_FAKE_RTC_TIMER, avr8_generic_fakertc_timer_device, "cavr8frtct", "Classic AVR8 asynchronous 8-bit timer");
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_FAKE_RTC_TIMER, avr8_megaavr_fakertc_timer_device, "cmegaavrfrtct", "Classic megaAVR asynchronous 8-bit timer");
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_FAKE_RTC_ASYNC_CONTROLLER, avr8_fakertc_async_controller_device, "cavr8frtcc", "Classic AVR8 asynchronous timer control unit");
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_FAKE_RTC_ASYNC_CONTROLLER, avr8_megaavr_fakertc_async_controller_device, "cavr8frtcc", "Classic megaAVR asynchronous timer control unit");
 
 ///////////////////////////////////////////////////////////////
 // BASE TIMER
@@ -1438,12 +1440,49 @@ void avr8_generic_fakertc_timer_device::cs_w(uint8_t data)
     m_cs = BIT(data, 0, 3);
 }
 
+void avr8_generic_fakertc_timer_device::tcnt_w(uint8_t data)
+{
+    // CPU writes override any compare matches for the current timer clock cycle
+    m_tcnt = data;
+    m_no_compare_this_cycle = true;
+}
+
+void avr8_megaavr_fakertc_timer_device::tccr_b_w(uint8_t data)
+{
+    printf("TCCR2B: %02x\n", data);
+    if (BIT(data,7)) force_oc0a();
+    if (BIT(data,6)) force_oc0b();
+    cs_w(BIT(data,0,3));
+    wgm_w(BIT(wgm_r(),0,2) | BIT(data,3) << 2);
+}
+
+uint8_t avr8_megaavr_fakertc_timer_device::tccr_b_r()
+{
+    // the FOCxx bits always read as zero; they are never stored.
+    return cs_r() | (BIT(wgm_r(),2) << 3);
+}
+
+avr8_megaavr_fakertc_timer_device::avr8_megaavr_fakertc_timer_device(const machine_config &mconfig,
+    const char *tag,
+    device_t *owner,
+    uint32_t clock) :
+    avr8_generic_fakertc_timer_device(mconfig, tag, owner, clock, AVR8_CLASSIC_MEGAAVR_FAKE_RTC_TIMER)
+{ }
+
 ///////////////////////////////////////////////////////////////
 // FAKE RTC ASYNCHRONOUS CLOCK MODULE
 ///////////////////////////////////////////////////////////////
 
 avr8_fakertc_async_controller_device::avr8_fakertc_async_controller_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
-    device_t(mconfig, AVR8_CLASSIC_FAKE_RTC_ASYNC_CONTROLLER, tag, owner, clock),
+    avr8_fakertc_async_controller_device(mconfig, tag, owner, clock, AVR8_CLASSIC_FAKE_RTC_ASYNC_CONTROLLER)
+    // device_t(mconfig, AVR8_CLASSIC_FAKE_RTC_ASYNC_CONTROLLER, tag, owner, clock),
+    // m_prescaler(*this, "prescaler"),
+    // m_child_timer(*this, "atimer2"),
+    // m_external_crystal_period(attotime::never)
+{}
+
+avr8_fakertc_async_controller_device::avr8_fakertc_async_controller_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock, const device_type device_type) :
+    device_t(mconfig, device_type, tag, owner, clock),
     m_prescaler(*this, "prescaler"),
     m_child_timer(*this, "atimer2"),
     m_external_crystal_period(attotime::never)
@@ -1535,4 +1574,26 @@ TIMER_CALLBACK_MEMBER(avr8_fakertc_async_controller_device::external_crystal_tic
     m_child_timer->tick();
 
     update_crystal_state();
+}
+
+avr8_megaavr_fakertc_async_controller_device::avr8_megaavr_fakertc_async_controller_device(const machine_config &mconfig, const char *tag, device_t *owner, uint32_t clock) :
+    avr8_fakertc_async_controller_device(mconfig, tag, owner, clock, AVR8_CLASSIC_MEGAAVR_FAKE_RTC_ASYNC_CONTROLLER)
+{}
+
+void avr8_megaavr_fakertc_async_controller_device::assr_w(uint8_t data)
+{
+    printf("assr: %02x\n", data);
+    as2_w(BIT(data, 5));
+    exclk_w(BIT(data, 6));
+}
+
+uint8_t avr8_megaavr_fakertc_async_controller_device::assr_r()
+{
+    // TODO: update busy bits
+    // - bit 0: TCR2BUB
+    // - bit 1: TCR2AUB
+    // - bit 2: OCR2BUB
+    // - bit 3: OCR2AUB
+    // - bit 4: TCN2UB
+    return (m_as2 << 5) | (m_exclk << 6);
 }

@@ -677,7 +677,8 @@ void megaavr_classic_base_device::megaavr_classic_base_internal_map(address_map 
 	
 	map(0x0035, 0x0035).rw("timer0", &avr8_megaavr_timer_0_device::tifr_r, "timer_0_tifr_r", &avr8_megaavr_timer_0_device::tifr_w, "timer_0_tifr_w");
 	map(0x0036, 0x0036).rw("timer1", &avr8_generic_t1_timer_device::tifr_r, "timer_1_tifr_r", &avr8_generic_t1_timer_device::tifr_w, "timer_1_tifr_w");
-	
+	map(0x0037, 0x0037).rw("atimer2", FUNC(avr8_megaavr_fakertc_timer_device::tifr_r), FUNC(avr8_megaavr_fakertc_timer_device::tifr_w));
+
 	// 0x0037-0x003a: all reserved for other timers
 	
 	map(0x003b, 0x003b).rw(FUNC(megaavr_classic_base_device::reg_r<PCIFR>), FUNC(megaavr_classic_base_device::pcifr_w));
@@ -761,12 +762,11 @@ void megaavr_classic_base_device::megaavr_classic_base_internal_map(address_map 
 	
 	map(0x006e, 0x006e).rw("timer0", FUNC(avr8_megaavr_timer_0_device::timsk_r), FUNC(avr8_megaavr_timer_0_device::timsk_w));
 	map(0x006f, 0x006f).rw("timer1", FUNC(avr8_generic_t1_timer_device::timsk_r), FUNC(avr8_generic_t1_timer_device::timsk_w));
-
-	// 0x0070: TIMSK2 (not on all devices)
+	map(0x0070, 0x0070).rw("atimer2", FUNC(avr8_megaavr_fakertc_timer_device::timsk_r), FUNC(avr8_megaavr_fakertc_timer_device::timsk_w));
 	// 0x0071: TIMSK3 (not on all devices)
 	// 0x0072: TIMSK4 (not on all devices)
 	// 0x0073: TIMSK5 (not on all devices)
-			
+
 	// 0x0074: XMCRA (not on all devices)
 	// 0x0075: XMCRB (not on all devices)
 
@@ -810,9 +810,14 @@ void megaavr_classic_base_device::megaavr_classic_base_internal_map(address_map 
 
 	// 0x00ae, 0x00af: reserved
 
-	// 0x00b0-0x00b4: Timer 2 control registers (not on all devices)
+	// 0x00b0-0x00b7: Timer 2 control registers (not on all devices)
+	map(0x00b0, 0x00b0).rw("atimer2", FUNC(avr8_megaavr_fakertc_timer_device::tccr_a_r), FUNC(avr8_megaavr_fakertc_timer_device::tccr_a_w));
+	map(0x00b1, 0x00b1).rw("atimer2", FUNC(avr8_megaavr_fakertc_timer_device::tccr_b_r), FUNC(avr8_megaavr_fakertc_timer_device::tccr_b_w));
+	map(0x00b2, 0x00b2).rw("atimer2", FUNC(avr8_megaavr_fakertc_timer_device::tcnt_r), FUNC(avr8_megaavr_fakertc_timer_device::tcnt_w));
+	map(0x00b3, 0x00b3).rw("atimer2", FUNC(avr8_megaavr_fakertc_timer_device::ocr_r<AVR8_TIMER_CMPCHANNEL_OC_A>), FUNC(avr8_megaavr_fakertc_timer_device::ocr_w<AVR8_TIMER_CMPCHANNEL_OC_A>));
+	map(0x00b4, 0x00b4).rw("atimer2", FUNC(avr8_megaavr_fakertc_timer_device::ocr_r<AVR8_TIMER_CMPCHANNEL_OC_B>), FUNC(avr8_megaavr_fakertc_timer_device::ocr_w<AVR8_TIMER_CMPCHANNEL_OC_B>));
 	// 0x00b5: reserved
-	// 0x00b6: ASSR for timer 2 controller (not on all devices)
+	map(0x00b6, 0x00b6).rw("asyncunit", FUNC(avr8_megaavr_fakertc_async_controller_device::assr_r), FUNC(avr8_megaavr_fakertc_async_controller_device::assr_w));
 	// 0x00b7: reserved
 
 	map(0x00b8, 0x00b8).rw(FUNC(megaavr_classic_base_device::reg_r<TWBR>), FUNC(megaavr_classic_base_device::twbr_w));
@@ -840,25 +845,10 @@ void atmegax8_base_device::atmegax8_base_internal_map(address_map &map)
 	map(0x002a, 0x002a).w(FUNC(atmegax8_base_device::ddr_w<GPIOD>));
 	map(0x002b, 0x002b).rw(FUNC(atmegax8_base_device::gpio_r<GPIOD>), FUNC(atmegax8_base_device::port_w<GPIOD>));
 
-	// TODO: switch timers 1 and 2 to device implementations.
-	// timer 0 is only implemented in a device at the moment.
-
-	map(0x0037, 0x0037).rw(FUNC(atmegax8_base_device::reg_r<TIFR2>), FUNC(atmegax8_base_device::tifr2_w));
-
 	map(0x006c, 0x006c).rw(FUNC(atmegax8_base_device::reg_r<PCMSK1>), FUNC(atmegax8_base_device::pcmsk1_w));
 	map(0x006d, 0x006d).rw(FUNC(atmegax8_base_device::reg_r<PCMSK2>), FUNC(atmegax8_base_device::pcmsk2_w));
 
-	// 0x006e: TIMSK0
-	map(0x0070, 0x0070).rw(FUNC(atmegax8_base_device::reg_r<TIMSK2>), FUNC(atmegax8_base_device::timsk2_w));
-
 	// 0x0071-0x0077: reserved
-
-	map(0x00b0, 0x00b0).rw(FUNC(atmegax8_base_device::reg_r<TCCR2A>), FUNC(atmegax8_base_device::tccr2a_w));
-	map(0x00b1, 0x00b1).rw(FUNC(atmegax8_base_device::reg_r<TCCR2B>), FUNC(atmegax8_base_device::tccr2b_w));
-	map(0x00b2, 0x00b2).rw(FUNC(atmegax8_base_device::reg_r<TCNT2>), FUNC(atmegax8_base_device::tcnt2_w));
-	map(0x00b3, 0x00b3).rw(FUNC(atmegax8_base_device::reg_r<OCR2A>), FUNC(atmegax8_base_device::ocr2a_w));
-	map(0x00b4, 0x00b4).rw(FUNC(atmegax8_base_device::reg_r<OCR2B>), FUNC(atmegax8_base_device::ocr2b_w));
-	map(0x00b6, 0x00b6).rw(FUNC(atmegax8_base_device::reg_r<ASSR>), FUNC(atmegax8_base_device::assr_w));
 
 	map(0x00c0, 0x00c0).rw(FUNC(atmegax8_base_device::reg_r<UCSR0A>), FUNC(atmegax8_base_device::ucsr0a_w));
 	map(0x00c1, 0x00c1).rw(FUNC(atmegax8_base_device::reg_r<UCSR0B>), FUNC(atmegax8_base_device::ucsr0b_w));
@@ -866,16 +856,7 @@ void atmegax8_base_device::atmegax8_base_internal_map(address_map &map)
 	map(0x00c4, 0x00c4).rw(FUNC(atmegax8_base_device::reg_r<UBRR0L>), FUNC(atmegax8_base_device::reg_w<UBRR0L>));
 	map(0x00c5, 0x00c5).rw(FUNC(atmegax8_base_device::reg_r<UBRR0H>), FUNC(atmegax8_base_device::reg_w<UBRR0H>));
 	map(0x00c6, 0x00c6).rw(FUNC(atmegax8_base_device::reg_r<UDR0>), FUNC(atmegax8_base_device::reg_w<UDR0>));
-#if 0
-	// Timer 2: async
-	map(0x0037, 0x0037).rw(m_timer2, FUNC(avr8_fakertc_timer_device::tifr_r), FUNC(avr8_fakertc_timer_device::tifr_w));
-	map(0x0070, 0x0070).rw(m_timer2, FUNC(avr8_fakertc_timer_device::tmsk_r), FUNC(avr8_fakertc_timer_device::tmsk_w));
-	map(0x00b0, 0x00b0).rw(m_timer2, FUNC(avr8_fakertc_timer_device::tccr_a_r), FUNC(avr8_fakertc_timer_device::tccr_a_w));
-	map(0x00b1, 0x00b1).rw(m_timer2, FUNC(avr8_fakertc_timer_device::tccr_b_r), FUNC(avr8_fakertc_timer_device::tccr_b_w));
-	map(0x00b2, 0x00b2).rw(m_timer2, FUNC(avr8_fakertc_timer_device::tcnt_r), FUNC(avr8_fakertc_timer_device::tcnt_w));
-	map(0x00b3, 0x00b3).rw(m_timer2, FUNC(avr8_fakertc_timer_device::ocr_a_r), FUNC(avr8_fakertc_timer_device::ocr_a_w));
-	map(0x00b4, 0x00b4).rw(m_timer2, FUNC(avr8_fakertc_timer_device::ocr_b_r), FUNC(avr8_fakertc_timer_device::ocr_b_w));
-#endif
+
 	// cells 0x00c7-0x00ff all reserved
 }
 
@@ -928,8 +909,9 @@ void atmegaxu4_base_device::atmegaxu4_base_internal_map(address_map &map)
 	map(0x0031, 0x0031).rw(FUNC(avr8_device::gpio_r<GPIOF>), FUNC(avr8_device::port_w<GPIOF>));
 	// 0x0032, 0x0033, 0x0034: reserved
 	// 0x0035: TIFR0 (already mapped)
-	//
+	
 	// 0x0037: reserved (no timer 2)
+	map(0x0037, 0x0037).unmaprw();
 	
 	// 0x0038: TIFR3
 	map(0x0038, 0x0038).rw("timer3", FUNC(avr8_generic_t1_timer_device::tifr_r), FUNC(avr8_generic_t1_timer_device::tifr_w));
@@ -939,6 +921,7 @@ void atmegaxu4_base_device::atmegaxu4_base_internal_map(address_map &map)
 		NAME([this] { return m_r[0x49] | 1; }),
 		NAME([this](uint8_t data) { m_r[0x49] = data; }));
 
+	map(0x0070, 0x0070).unmaprw(); // no Timer 2
 	map(0x0071, 0x0071).rw("timer3", FUNC(avr8_generic_t1_timer_device::timsk_r), FUNC(avr8_generic_t1_timer_device::timsk_w));
 
 	map(0x0090, 0x0090).rw("timer3", FUNC(avr8_generic_t1_timer_device::tccr_a_r), FUNC(avr8_generic_t1_timer_device::tccr_a_w));
@@ -954,6 +937,8 @@ void atmegaxu4_base_device::atmegaxu4_base_internal_map(address_map &map)
 	map(0x009b, 0x009b).rw("timer3", FUNC(avr8_generic_t1_timer_device::ocr_h_r<AVR8_TIMER_CMPCHANNEL_OC_B>), FUNC(avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_B>));
 	map(0x009c, 0x009c).rw("timer3", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_C>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_C>));
 	map(0x009d, 0x009d).rw("timer3", FUNC(avr8_generic_t1_timer_device::ocr_h_r<AVR8_TIMER_CMPCHANNEL_OC_C>), FUNC(avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_C>));
+
+	map(0x00b0, 0x00b7).unmaprw(); // no Timer 2
 }
 
 #if 0
@@ -1002,20 +987,8 @@ void atmegax4_base_device::atmegax4_base_internal_map(address_map &map)
 	map(0x002a, 0x002a).rw(FUNC(atmegax4_base_device::reg_r<DDRD>), FUNC(avr8_device::ddr_w<GPIOD>));
 	map(0x002b, 0x002b).rw(FUNC(avr8_device::gpio_r<GPIOD>), FUNC(avr8_device::port_w<GPIOD>));
 
-	map(0x0037, 0x0037).rw(FUNC(atmegax4_base_device::reg_r<TIFR2>), FUNC(atmegax4_base_device::tifr2_w));
-
 	map(0x006c, 0x006c).rw(FUNC(atmegax4_base_device::reg_r<PCMSK1>), FUNC(atmegax4_base_device::pcmsk1_w));
 	map(0x006d, 0x006d).rw(FUNC(atmegax4_base_device::reg_r<PCMSK2>), FUNC(atmegax4_base_device::pcmsk2_w));
-
-	// 0x006e: TIMSK0
-	map(0x0070, 0x0070).rw(FUNC(atmegax4_base_device::reg_r<TIMSK2>), FUNC(atmegax4_base_device::timsk2_w));
-
-	map(0x00b0, 0x00b0).rw(FUNC(atmegax4_base_device::reg_r<TCCR2A>), FUNC(atmegax4_base_device::tccr2a_w));
-	map(0x00b1, 0x00b1).rw(FUNC(atmegax4_base_device::reg_r<TCCR2B>), FUNC(atmegax4_base_device::tccr2b_w));
-	map(0x00b2, 0x00b2).rw(FUNC(atmegax4_base_device::reg_r<TCNT2>), FUNC(atmegax4_base_device::tcnt2_w));
-	map(0x00b3, 0x00b3).rw(FUNC(atmegax4_base_device::reg_r<OCR2A>), FUNC(atmegax4_base_device::ocr2a_w));
-	map(0x00b4, 0x00b4).rw(FUNC(atmegax4_base_device::reg_r<OCR2B>), FUNC(atmegax4_base_device::ocr2b_w));
-	map(0x00b6, 0x00b6).rw(FUNC(atmegax4_base_device::reg_r<ASSR>), FUNC(atmegax4_base_device::assr_w));
 
 	map(0x00c0, 0x00c0).rw(FUNC(atmegax4_base_device::reg_r<UCSR0A>), FUNC(atmegax4_base_device::ucsr0a_w));
 	map(0x00c1, 0x00c1).rw(FUNC(atmegax4_base_device::reg_r<UCSR0B>), FUNC(atmegax4_base_device::ucsr0b_w));
@@ -1115,7 +1088,6 @@ void atmegax0_base_device::atmegax0_base_internal_map(address_map &map)
 	map(0x00ac, 0x00ac).rw("timer4", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_C>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_C>));
 	map(0x00ad, 0x00ad).rw("timer4", FUNC(avr8_generic_t1_timer_device::ocr_h_r<AVR8_TIMER_CMPCHANNEL_OC_C>), FUNC(avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_C>));
 
-	// 
 	map(0x00b0, 0x00b0).rw(FUNC(atmegax0_base_device::reg_r<TCCR2A>), FUNC(atmegax0_base_device::tccr2a_w));
 	map(0x00b1, 0x00b1).rw(FUNC(atmegax0_base_device::reg_r<TCCR2B>), FUNC(atmegax0_base_device::tccr2b_w));
 	map(0x00b2, 0x00b2).rw(FUNC(atmegax0_base_device::reg_r<TCNT2>), FUNC(atmegax0_base_device::tcnt2_w));
@@ -1854,6 +1826,21 @@ void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
 	m_int_ack_cbs[INTIDX_TOV1].bind().set("timer1", FUNC(avr8_generic_t1_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OV>));
 	m_int_ack_cbs[INTIDX_OCF1A].bind().set("timer1", FUNC(avr8_generic_t1_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_A>));
 	m_int_ack_cbs[INTIDX_OCF1B].bind().set("timer1", FUNC(avr8_generic_t1_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_B>));
+
+	// The asynchronous timer subsystem is present on all classic megaAVRs except for the ATMegaXU4 series
+	auto &atimer2(AVR8_CLASSIC_MEGAAVR_FAKE_RTC_TIMER(config, "atimer2", 0));
+	atimer2.int_cb<AVR8_TIMER_INTCHANNEL_OV>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_TOV2>));
+	atimer2.int_cb<AVR8_TIMER_INTCHANNEL_OC_A>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF2A>));
+	atimer2.int_cb<AVR8_TIMER_INTCHANNEL_OC_B>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF2B>));
+	m_int_ack_cbs[INTIDX_TOV2].bind().set(atimer2, FUNC(avr8_generic_fakertc_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OV>));
+	m_int_ack_cbs[INTIDX_OCF2A].bind().set(atimer2, FUNC(avr8_generic_fakertc_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_A>));
+	m_int_ack_cbs[INTIDX_OCF2B].bind().set(atimer2, FUNC(avr8_generic_fakertc_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_B>));
+
+	auto &asyncunit(AVR8_CLASSIC_MEGAAVR_FAKE_RTC_ASYNC_CONTROLLER(config, "asyncunit", 0));
+	
+	// connect async unit, prescaler, and timer together
+	asyncunit.set_child_timer_tag(atimer2.tag());
+	atimer2.set_upstream_prescaler_tag("asyncunit:prescaler");
 }
 
 // ATMegax8 series (ATMega88, ATMega168, ATMega328)
@@ -1878,14 +1865,13 @@ void atmegax8_base_device::device_add_mconfig(machine_config &config)
 	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax8_base_device::toggle_gpio_bit<GPIOB, 2>, "toggle_gpio_bit_pb2");
 	// TODO: T1
 	
-#if 0
 	// Timer 2: 8-bit fake RTC
 	// Timer 2 signals: OC2A = PB2, OC2B = PD3
-	m_timer_2->set_oc_b_w_cb(FUNC(atmegax8_base_device::set_gpio_bit<PORTB, 2>));
-	m_timer_2->set_oc_b_toggle_w_cb(FUNC(atmegax8_base_device::toggle_gpio_bit<PORTB, 2>));
-	m_timer_2->set_oc_b_w_cb(FUNC(atmegax8_base_device::set_gpio_bit<PORTD, 3>));
-	m_timer_2->set_oc_b_toggle_w_cb(FUNC(atmegax8_base_device::toggle_gpio_bit<PORTD, 3>));
-#endif
+	auto atimer2 = subdevice<avr8_generic_fakertc_timer_device>("atimer2");
+	atimer2->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax8_base_device::set_gpio_bit<GPIOB, 2>, "set_gpio_bit_pb2");
+	atimer2->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax8_base_device::toggle_gpio_bit<GPIOB, 2>, "toggle_gpio_bit_pb2");
+	atimer2->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax8_base_device::set_gpio_bit<GPIOD, 3>, "set_gpio_bit_pd3");
+	atimer2->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax8_base_device::toggle_gpio_bit<GPIOD, 3>, "toggle_gpio_bit_pd3");
 }
 
 
@@ -1903,7 +1889,6 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 	timer0->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_a_w));
 	timer0->oc_en_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_en_a_w));
 	timer0->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_toggle_a_w));
-	// TODO: toggle routing. will be useless otherwise
 
 	timer0->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegaxu4_base_device::set_gpio_bit<GPIOD, 0>, "set_gpio_bit_pd0");
 	timer0->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegaxu4_base_device::toggle_gpio_bit<GPIOD, 0>, "toggle_gpio_bit_pd0");
@@ -1919,6 +1904,8 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 	timer1->oc_en_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_en_b_w));
 	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_toggle_b_w));
 	timer1->int_cb<AVR8_TIMER_INTCHANNEL_OC_C>().set(FUNC(atmegaxu4_base_device::int_line_w<INTIDX_OCF1C>));
+
+	// Timer 2 doesn't exist on these chips
 
 	// Timer 3: 16-bit similar to timer 1. Important difference is no Tx pin.
 	// Outputs: OC3A = PC6. There is no T3 pin.
@@ -1969,7 +1956,7 @@ void atmegax0_base_device::device_add_mconfig(machine_config &config)
 	timer1->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax0_base_device::set_gpio_bit<GPIOB, 5>, "set_gpio_bit_pb5");
 	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax0_base_device::toggle_gpio_bit<GPIOB, 5>, "toggle_gpio_bit_pb5");
 	timer1->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax0_base_device::set_gpio_bit<GPIOB, 6>, "set_gpio_bit_pb6");
-	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax0_base_device::toggle_gpio_bit<GPIOB, 5>, "toggle_gpio_bit_pb6");
+	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax0_base_device::toggle_gpio_bit<GPIOB, 6>, "toggle_gpio_bit_pb6");
 	timer1->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_b_w));
 	timer1->oc_en_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_en_b_w));
 	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_C>().set(ocm, FUNC(avr8_output_compare_modulator_device::compare_out_toggle_b_w));
@@ -1979,6 +1966,11 @@ void atmegax0_base_device::device_add_mconfig(machine_config &config)
 	// Timer 2: 8-bit fake RTC
 	// Timer 2 signals: OC2A = PB4, OC2B = PH6
 	// TOSC1 = PG4, TOSC2 = PG3
+	auto atimer2 = subdevice<avr8_generic_fakertc_timer_device>("atimer2");
+	atimer2->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax0_base_device::set_gpio_bit<GPIOB, 4>, "set_gpio_bit_pb4");
+	atimer2->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax0_base_device::toggle_gpio_bit<GPIOB, 4>, "toggle_gpio_bit_pb4");
+	atimer2->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax0_base_device::set_gpio_bit<GPIOH, 6>, "set_gpio_bit_ph6");
+	atimer2->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax0_base_device::toggle_gpio_bit<GPIOH, 6>, "toggle_gpio_bit_ph6");
 
 	// Timer 3 signals: OC3A = PE3, OC3B = PE4, OC3C = PE5, T3 = PE6
 	auto &timer3(AVR8_CLASSIC_GENERIC_TIMER_1(config, "timer3", 0));
@@ -2038,6 +2030,15 @@ void atmegax4_base_device::device_add_mconfig(machine_config &config)
 	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax4_base_device::toggle_gpio_bit<GPIOD, 5>, "toggle_gpio_bit_pd5");
 	timer1->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax4_base_device::set_gpio_bit<GPIOD, 4>, "set_gpio_bit_pd4");
 	timer1->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax4_base_device::toggle_gpio_bit<GPIOD, 4>, "toggle_gpio_bit_pd4");
+
+	// Timer 2: 8-bit fake RTC
+	// Timer 2 signals: OC2A = PD7, OC2B = PD6
+	// TOSC1 = PC6, TOSC2 = PC7
+	auto atimer2 = subdevice<avr8_generic_fakertc_timer_device>("atimer2");
+	atimer2->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax4_base_device::set_gpio_bit<GPIOD, 7>, "set_gpio_bit_pd7");
+	atimer2->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax4_base_device::toggle_gpio_bit<GPIOD, 7>, "toggle_gpio_bit_pd7");
+	atimer2->oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax4_base_device::set_gpio_bit<GPIOD, 6>, "set_gpio_bit_pd6");
+	atimer2->oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_B>().set(&atmegax4_base_device::toggle_gpio_bit<GPIOD, 6>, "toggle_gpio_bit_pd6");
 }
 
 //-------------------------------------------------
@@ -2125,9 +2126,9 @@ const avr8_base_device::interrupt_condition avr8_base_device::s_int_conditions[]
 	{ INTIDX_OCF1B,  AVR8_INT_T1COMPB, 1, 			 0,        0,                  0,        0, },
 	{ INTIDX_OCF1A,  AVR8_INT_T1COMPA, 1, 			 0,        0,                  0,        0, },
 	{ INTIDX_TOV1,   AVR8_INT_T1OVF,   1, 			 0,        0,                  0,        0, },
-	{ INTIDX_OCF2B,  AVR8_INT_T2COMPB, 0, 			 TIMSK2,    TIMSK2_OCIE2B_MASK, TIFR2,    TIFR2_OCF2B_MASK },
-	{ INTIDX_OCF2A,  AVR8_INT_T2COMPA, 0, 			 TIMSK2,    TIMSK2_OCIE2A_MASK, TIFR2,    TIFR2_OCF2A_MASK },
-	{ INTIDX_TOV2,   AVR8_INT_T2OVF,   0, 			 TIMSK2,    TIMSK2_TOIE2_MASK,  TIFR2,    TIFR2_TOV2_MASK  },
+	{ INTIDX_OCF2B,  AVR8_INT_T2COMPB, 1, 			 0,        0,                  0,        0, },
+	{ INTIDX_OCF2A,  AVR8_INT_T2COMPA, 1, 			 0,        0,                  0,        0, },
+	{ INTIDX_TOV2,   AVR8_INT_T2OVF,   1, 			 0,        0,                  0,        0, },
 	{ INTIDX_PCINT0, AVR8_INT_PCINT0,  0, 			 PCICR,     PCICR_PCIE0_MASK,   PCIFR,    PCIFR_PCIF0_MASK },
 	{ INTIDX_PCINT1, AVR8_INT_PCINT1,  0, 			 PCICR,     PCICR_PCIE1_MASK,   PCIFR,    PCIFR_PCIF1_MASK },
 	{ INTIDX_PCINT2, AVR8_INT_PCINT2,  0, 			 PCICR,     PCICR_PCIE2_MASK,   PCIFR,    PCIFR_PCIF2_MASK },
@@ -2396,9 +2397,9 @@ const avr8_base_device::interrupt_condition avr8_base_device::s_mega640_int_cond
 	{ INTIDX_OCF1B,  ATMEGA640_INT_T1COMPB,  1, 		   0,        0,                  0,        0, },
 	{ INTIDX_OCF1A,  ATMEGA640_INT_T1COMPA,  1, 		   0,        0,                  0,        0, },
 	{ INTIDX_TOV1,   ATMEGA640_INT_T1OVF,    1, 		   0,        0,                  0,        0, },
-	{ INTIDX_OCF2B,  ATMEGA640_INT_T2COMPB,  0, 		   TIMSK2,   TIMSK2_OCIE2B_MASK, TIFR2,    TIFR2_OCF2B_MASK },
-	{ INTIDX_OCF2A,  ATMEGA640_INT_T2COMPA,  0, 		   TIMSK2,   TIMSK2_OCIE2A_MASK, TIFR2,    TIFR2_OCF2A_MASK },
-	{ INTIDX_TOV2,   ATMEGA640_INT_T2OVF,    0, 		   TIMSK2,   TIMSK2_TOIE2_MASK,  TIFR2,    TIFR2_TOV2_MASK },
+	{ INTIDX_OCF2B,  ATMEGA640_INT_T2COMPB,  1, 		   0,        0,                  0,        0, },
+	{ INTIDX_OCF2A,  ATMEGA640_INT_T2COMPA,  1, 		   0,        0,                  0,        0, },
+	{ INTIDX_TOV2,   ATMEGA640_INT_T2OVF,    1, 		   0,        0,                  0,        0, },
 	{ INTIDX_PCINT0, ATMEGA640_INT_PCINT0,   0, 		   PCICR,    PCICR_PCIE0_MASK,   PCIFR,    PCIFR_PCIF0_MASK },
 	{ INTIDX_PCINT1, ATMEGA640_INT_PCINT1,   0, 		   PCICR,    PCICR_PCIE1_MASK,   PCIFR,    PCIFR_PCIF1_MASK },
 	{ INTIDX_PCINT2, ATMEGA640_INT_PCINT2,   0, 		   PCICR,    PCICR_PCIE2_MASK,   PCIFR,    PCIFR_PCIF2_MASK },
@@ -2430,9 +2431,9 @@ const avr8_base_device::interrupt_condition avr8_base_device::s_mega644_int_cond
 	{ INTIDX_OCF1B,   ATMEGA644_INT_T1COMPB,  1, 			0,        0,                  0,        0, },
 	{ INTIDX_OCF1A,   ATMEGA644_INT_T1COMPA,  1, 			0,        0,                  0,        0, },
 	{ INTIDX_TOV1,    ATMEGA644_INT_T1OVF,    1, 			0,        0,                  0,        0, },
-	{ INTIDX_OCF2B,   ATMEGA644_INT_T2COMPB,  0, 			TIMSK2,   TIMSK2_OCIE2B_MASK, TIFR2,    TIFR2_OCF2B_MASK },
-	{ INTIDX_OCF2A,   ATMEGA644_INT_T2COMPA,  0, 			TIMSK2,   TIMSK2_OCIE2A_MASK, TIFR2,    TIFR2_OCF2A_MASK },
-	{ INTIDX_TOV2,    ATMEGA644_INT_T2OVF,    0, 			TIMSK2,   TIMSK2_TOIE2_MASK,  TIFR2,    TIFR2_TOV2_MASK },
+	{ INTIDX_OCF2B,   ATMEGA644_INT_T2COMPB,  1, 			0,        0,                  0,        0, },
+	{ INTIDX_OCF2A,   ATMEGA644_INT_T2COMPA,  1, 			0,        0,                  0,        0, },
+	{ INTIDX_TOV2,    ATMEGA644_INT_T2OVF,    1, 			0,        0,                  0,        0, },
 	{ INTIDX_PCINT0,  ATMEGA644_INT_PCINT0,   0, 			PCICR,    PCICR_PCIE0_MASK,   PCIFR,    PCIFR_PCIF0_MASK },
 	{ INTIDX_PCINT1,  ATMEGA644_INT_PCINT1,   0, 			PCICR,    PCICR_PCIE1_MASK,   PCIFR,    PCIFR_PCIF1_MASK },
 	{ INTIDX_PCINT2,  ATMEGA644_INT_PCINT2,   0, 			PCICR,    PCICR_PCIE2_MASK,   PCIFR,    PCIFR_PCIF2_MASK },
@@ -4609,6 +4610,8 @@ void avr8_device::execute_run()
 	// TODO: turn this back into a required_device
 	auto syncprescale = subdevice<avr8_10bit_prescaler_device>("syncprescale");
 
+	auto asyncunit = subdevice<avr8_fakertc_async_controller_device>("asyncunit");
+
 	while (m_icount > 0)
 	{
 		if (m_sleeping)
@@ -4661,10 +4664,6 @@ void avr8_device::execute_run()
 			}
 
 			syncprescale->tick();
-
-			// TODO: if an async timer is present, its controller still needs to be notified
-			// of a clk_io cycle because the timer might be in synchronous mode
-	
 			for (int i = 0; i < m_timers.size(); i++)
 			{
 				if (m_timers[i])
@@ -4676,9 +4675,15 @@ void avr8_device::execute_run()
 				}
 			}
 
-			m_timer_prescale_count[2]++;
-			if (m_timer_prescale_count[2] > m_timer_prescale[2])
-				m_timer2_tick();
+			if (asyncunit != NULL)
+			{
+				asyncunit->clk_io_w(1);
+				asyncunit->clk_io_w(0);
+			}
+
+			// m_timer_prescale_count[2]++;
+			// if (m_timer_prescale_count[2] > m_timer_prescale[2])
+			// 	m_timer2_tick();
 
 			if (!m_sei_delay_pending)
 			{
