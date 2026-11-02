@@ -864,26 +864,34 @@ void atmegax8_base_device::atmegax8_base_internal_map(address_map &map)
 void atmega48_device::atmega48_device_internal_map(address_map &map)
 {
 	atmegax8_base_internal_map::atmegax8_base_internal_map();
-	map(0x0100, 0x02ff).ram();
+
+	// TODO: reenable when datamaps are all removed from drivers
+	// map(0x0100, 0x02ff).ram();
 }
 #endif
 
 void atmega88_device::atmega88_internal_map(address_map &map)
 {
 	atmegax8_base_internal_map(map);
-	map(0x0100, 0x04ff).ram();
+
+	// TODO: reenable when datamaps are all removed from drivers
+	// map(0x0100, 0x04ff).ram();
 }
 
 void atmega168_device::atmega168_internal_map(address_map &map)
 {
 	atmegax8_base_internal_map(map);
-	map(0x0100, 0x04ff).ram();
+
+	// TODO: reenable when datamaps are all removed from drivers
+	// map(0x0100, 0x04ff).ram();
 }
 
 void atmega328_device::atmega328_internal_map(address_map &map)
 {
 	atmegax8_base_internal_map(map);
-	map(0x0100, 0x08ff).ram();
+
+	// TODO: reenable when datamaps are all removed from drivers
+	// map(0x0100, 0x08ff).ram();
 }
 
 void atmegaxu4_base_device::atmegaxu4_base_internal_map(address_map &map)
@@ -941,30 +949,11 @@ void atmegaxu4_base_device::atmegaxu4_base_internal_map(address_map &map)
 	map(0x00b0, 0x00b7).unmaprw(); // no Timer 2
 }
 
-#if 0
-
-void atmegax4_base_device::atmegax4_base_internal_map(address_map &map)
-{
-	// Timers 0,1,2 same as ATMegax8
-}
-
-void atmegax4_base_device::atmega1284_2564_base_internal_map(address_map &map)
-{
-	// these have another 16-bit timer in Timer 3, so install it here
-
-	// extended flash space means z-pointer highbits register
-	// needs to be installed here
-}
-#endif
-
 void atmega32u4_device::atmega32u4_internal_map(address_map &map)
 {
-	// avr8_device::base_internal_map(map);
 	atmegaxu4_base_internal_map(map);
 
-	// fake USB PLL lock so that code that reads it is satisfied
-	map(0x0049, 0x0049).lr8(NAME([this] { return m_r[0x49] | 1; }));
-
+	// TODO: install RAM
 }
 
 void atmegax4_base_device::atmegax4_base_internal_map(address_map &map)
@@ -1001,12 +990,16 @@ void atmegax4_base_device::atmegax4_base_internal_map(address_map &map)
 void atmega644_device::atmega644_internal_map(address_map &map)
 {
 	atmegax4_base_internal_map(map);
+
+	// TODO: install RAM
 }
 
 void atmega1284_device::atmega1284_internal_map(address_map &map)
 {
 	atmegax4_base_internal_map(map);
 	map(0x005b, 0x005b).rw(FUNC(atmega1284_device::reg_r<RAMPZ>), FUNC(atmega1284_device::reg_w<RAMPZ>));
+
+	// TODO: install RAM
 }
 
 
@@ -1041,7 +1034,6 @@ void atmegax0_base_device::atmegax0_base_internal_map(address_map &map)
 	map(0x0033, 0x0033).rw(FUNC(atmegax0_base_device::reg_r<DDRG>), FUNC(avr8_device::ddr_w<GPIOG>));
 	map(0x0034, 0x0034).rw(FUNC(avr8_device::gpio_r<GPIOG>), FUNC(avr8_device::port_w<GPIOG>));
 
-	map(0x0037, 0x0037).rw(FUNC(atmegax0_base_device::reg_r<TIFR2>), FUNC(atmegax0_base_device::tifr2_w));
 	map(0x0038, 0x0038).rw("timer3", FUNC(avr8_generic_t1_timer_device::tifr_r), FUNC(avr8_generic_t1_timer_device::tifr_w));
 	map(0x0039, 0x0039).rw("timer4", FUNC(avr8_generic_t1_timer_device::tifr_r), FUNC(avr8_generic_t1_timer_device::tifr_w));
 	map(0x003a, 0x003a).rw("timer5", FUNC(avr8_generic_t1_timer_device::tifr_r), FUNC(avr8_generic_t1_timer_device::tifr_w));
@@ -1051,7 +1043,6 @@ void atmegax0_base_device::atmegax0_base_internal_map(address_map &map)
 	map(0x006d, 0x006d).rw(FUNC(atmegax0_base_device::reg_r<PCMSK2>), FUNC(atmegax0_base_device::pcmsk2_w));
 
 	// 0x006e: TIMSK0
-	map(0x0070, 0x0070).rw(FUNC(atmegax0_base_device::reg_r<TIMSK2>), FUNC(atmegax0_base_device::timsk2_w));
 	map(0x0071, 0x0071).rw("timer3", FUNC(avr8_generic_t1_timer_device::timsk_r), FUNC(avr8_generic_t1_timer_device::timsk_w));
 	map(0x0072, 0x0072).rw("timer4", FUNC(avr8_generic_t1_timer_device::timsk_r), FUNC(avr8_generic_t1_timer_device::timsk_w));
 	map(0x0073, 0x0073).rw("timer5", FUNC(avr8_generic_t1_timer_device::timsk_r), FUNC(avr8_generic_t1_timer_device::timsk_w));
@@ -1087,13 +1078,6 @@ void atmegax0_base_device::atmegax0_base_internal_map(address_map &map)
 	map(0x00ab, 0x00ab).rw("timer4", FUNC(avr8_generic_t1_timer_device::ocr_h_r<AVR8_TIMER_CMPCHANNEL_OC_B>), FUNC(avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_B>));
 	map(0x00ac, 0x00ac).rw("timer4", FUNC(avr8_generic_t1_timer_device::ocr_l_r<AVR8_TIMER_CMPCHANNEL_OC_C>), FUNC(avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_C>));
 	map(0x00ad, 0x00ad).rw("timer4", FUNC(avr8_generic_t1_timer_device::ocr_h_r<AVR8_TIMER_CMPCHANNEL_OC_C>), FUNC(avr8_generic_t1_timer_device::ocr_h_w<AVR8_TIMER_CMPCHANNEL_OC_C>));
-
-	map(0x00b0, 0x00b0).rw(FUNC(atmegax0_base_device::reg_r<TCCR2A>), FUNC(atmegax0_base_device::tccr2a_w));
-	map(0x00b1, 0x00b1).rw(FUNC(atmegax0_base_device::reg_r<TCCR2B>), FUNC(atmegax0_base_device::tccr2b_w));
-	map(0x00b2, 0x00b2).rw(FUNC(atmegax0_base_device::reg_r<TCNT2>), FUNC(atmegax0_base_device::tcnt2_w));
-	map(0x00b3, 0x00b3).rw(FUNC(atmegax0_base_device::reg_r<OCR2A>), FUNC(atmegax0_base_device::ocr2a_w));
-	map(0x00b4, 0x00b4).rw(FUNC(atmegax0_base_device::reg_r<OCR2B>), FUNC(atmegax0_base_device::ocr2b_w));
-	map(0x00b6, 0x00b6).rw(FUNC(atmegax0_base_device::reg_r<ASSR>), FUNC(atmegax0_base_device::assr_w));
 
 	map(0x00c0, 0x00c0).rw(FUNC(atmegax0_base_device::reg_r<UCSR0A>), FUNC(atmegax0_base_device::ucsr0a_w));
 	map(0x00c1, 0x00c1).rw(FUNC(atmegax0_base_device::reg_r<UCSR0B>), FUNC(atmegax0_base_device::ucsr0b_w));
