@@ -1293,6 +1293,8 @@ avr8_device::avr8_device(const machine_config &mconfig, const char *tag, device_
 	, m_spi_prescale_count(0)
 	, m_spi_rx_shift(0)
 	, m_timers(*this, "timer%u", 0U)
+	, m_syncprescale(*this, "syncprescale")
+	, m_asyncunit(*this, "asyncunit")
 {
 	// Fill in default callbacks
 	for (int i = 0; i < 8*4; i++)
@@ -1785,7 +1787,7 @@ void avr8_device::device_add_mconfig(machine_config &config)
 	avr8_base_device::device_add_mconfig(config);
 
 	// all classic AVRs will have a synchronous prescaler; instantiate it here
-	AVR8_CLASSIC_10BIT_PRESCALER(config, "syncprescale", 0);
+	AVR8_CLASSIC_10BIT_PRESCALER(config, m_syncprescale, 0);
 }
 
 void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
@@ -1796,7 +1798,7 @@ void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
 	// but signal routing differs. Each subclass device_add_mconfig() is responsible
 	// for routing them.
 	auto &timer0(AVR8_CLASSIC_MEGAAVR_TIMER_0(config, "timer0", 0));
-	timer0.set_upstream_prescaler_tag(subdevice<avr8_10bit_prescaler_device>("syncprescale")->tag());
+	timer0.set_upstream_prescaler_tag(m_syncprescale);
 	timer0.int_cb<AVR8_TIMER_INTCHANNEL_OV>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_TOV0>));
 	timer0.int_cb<AVR8_TIMER_INTCHANNEL_OC_A>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF0A>));
 	timer0.int_cb<AVR8_TIMER_INTCHANNEL_OC_B>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF0B>));
@@ -1807,7 +1809,7 @@ void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
 	// The megaAVRs all use the same Timer 1 implementation, a 16-bit timer.
 	// Any device that uses three-channel mode has to enable it in its device_add_mconfig().
 	auto &timer1(AVR8_CLASSIC_GENERIC_TIMER_1(config, "timer1", 0));
-	timer1.set_upstream_prescaler_tag(subdevice<avr8_10bit_prescaler_device>("syncprescale")->tag());
+	timer1.set_upstream_prescaler_tag(m_syncprescale);
 	timer1.int_cb<AVR8_TIMER_INTCHANNEL_OV>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_TOV1>));
 	timer1.int_cb<AVR8_TIMER_INTCHANNEL_OC_A>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF1A>));
 	timer1.int_cb<AVR8_TIMER_INTCHANNEL_OC_B>().set(FUNC(megaavr_classic_base_device::int_line_w<INTIDX_OCF1B>));
@@ -1825,7 +1827,7 @@ void megaavr_classic_base_device::device_add_mconfig(machine_config &config)
 	m_int_ack_cbs[INTIDX_OCF2A].bind().set(atimer2, FUNC(avr8_generic_fakertc_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_A>));
 	m_int_ack_cbs[INTIDX_OCF2B].bind().set(atimer2, FUNC(avr8_generic_fakertc_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_OC_B>));
 
-	auto &asyncunit(AVR8_CLASSIC_MEGAAVR_FAKE_RTC_ASYNC_CONTROLLER(config, "asyncunit", 0));
+	auto &asyncunit(AVR8_CLASSIC_MEGAAVR_FAKE_RTC_ASYNC_CONTROLLER(config, m_asyncunit, 0));
 	
 	// connect async unit, prescaler, and timer together
 	asyncunit.set_child_timer_tag(atimer2.tag());
@@ -1899,7 +1901,7 @@ void atmegaxu4_base_device::device_add_mconfig(machine_config &config)
 	// Timer 3: 16-bit similar to timer 1. Important difference is no Tx pin.
 	// Outputs: OC3A = PC6. There is no T3 pin.
 	auto &timer3(AVR8_CLASSIC_GENERIC_TIMER_1(config, "timer3", 0));
-	timer3.set_upstream_prescaler_tag(subdevice<avr8_10bit_prescaler_device>("syncprescale")->tag());
+	timer3.set_upstream_prescaler_tag(m_syncprescale);
 	timer3.set_ocr_channel_c_enabled(true);
 	timer3.oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegaxu4_base_device::set_gpio_bit<GPIOC, 6>, "set_gpio_bit_pc6");
 	timer3.oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegaxu4_base_device::toggle_gpio_bit<GPIOC, 6>, "toggle_gpio_bit_pc6");
@@ -1963,7 +1965,7 @@ void atmegax0_base_device::device_add_mconfig(machine_config &config)
 
 	// Timer 3 signals: OC3A = PE3, OC3B = PE4, OC3C = PE5, T3 = PE6
 	auto &timer3(AVR8_CLASSIC_GENERIC_TIMER_1(config, "timer3", 0));
-	timer3.set_upstream_prescaler_tag(subdevice<avr8_10bit_prescaler_device>("syncprescale")->tag());
+	timer3.set_upstream_prescaler_tag(m_syncprescale);
 	timer3.set_ocr_channel_c_enabled(true);
 	timer3.oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax0_base_device::set_gpio_bit<GPIOE, 3>, "set_gpio_bit_pe3");
 	timer3.oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax0_base_device::toggle_gpio_bit<GPIOE, 3>, "toggle_gpio_bit_pe3");
@@ -1976,7 +1978,7 @@ void atmegax0_base_device::device_add_mconfig(machine_config &config)
 	// Timer 4 signals: OC4A = PH3, OC4B = PH4, OC4C = PH5, T4 = PH7
 	// (PH7 is NOT a typo, PH6 is OC2B!)
 	auto &timer4(AVR8_CLASSIC_GENERIC_TIMER_1(config, "timer4", 0));
-	timer4.set_upstream_prescaler_tag(subdevice<avr8_10bit_prescaler_device>("syncprescale")->tag());
+	timer4.set_upstream_prescaler_tag(m_syncprescale);
 	timer4.set_ocr_channel_c_enabled(true);
 	timer4.oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax0_base_device::set_gpio_bit<GPIOH, 3>, "set_gpio_bit_ph3");
 	timer4.oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax0_base_device::toggle_gpio_bit<GPIOH, 3>, "toggle_gpio_bit_ph3");
@@ -1988,7 +1990,7 @@ void atmegax0_base_device::device_add_mconfig(machine_config &config)
 
 	// Timer 5 signals: OC5A = PL3, OC5B = PL4, OC5C = PL5, T5 = PL2	
 	auto &timer5(AVR8_CLASSIC_GENERIC_TIMER_1(config, "timer5", 0));
-	timer5.set_upstream_prescaler_tag(subdevice<avr8_10bit_prescaler_device>("syncprescale")->tag());
+	timer5.set_upstream_prescaler_tag(m_syncprescale);
 	timer5.set_ocr_channel_c_enabled(true);
 	timer5.oc_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax0_base_device::set_gpio_bit<GPIOH, 3>, "set_gpio_bit_pl3");
 	timer5.oc_toggle_w_cb<AVR8_TIMER_CMPCHANNEL_OC_A>().set(&atmegax0_base_device::toggle_gpio_bit<GPIOH, 3>, "toggle_gpio_bit_pl3");
@@ -3506,7 +3508,7 @@ void megaavr_classic_base_device::gtccr_w(uint8_t data)
 	m_psrasy = BIT(data, 1);
 	m_psrsync = BIT(data, 0);
 	
-	if (m_psrsync) subdevice<avr8_10bit_prescaler_device>("syncprescale")->sync_w(true);
+	if (m_psrsync) m_syncprescale->sync_w(true);
 	// TODO: PSRASY hookup/routing
 	
 	// if TSM not active, PSRASY and PSRSYNC will automatically clear on the same cycle
@@ -3515,7 +3517,7 @@ void megaavr_classic_base_device::gtccr_w(uint8_t data)
 		m_psrasy = false;
 		m_psrsync = false;
 
-		subdevice<avr8_10bit_prescaler_device>("syncprescale")->sync_w(false);
+		m_syncprescale->sync_w(false);
 		// TODO: PSRASY
 	}
 }
@@ -4596,11 +4598,6 @@ void avr8_device::ucsr0c_w(uint8_t data)
 
 void avr8_device::execute_run()
 {
-	// TODO: turn this back into a required_device
-	auto syncprescale = subdevice<avr8_10bit_prescaler_device>("syncprescale");
-
-	auto asyncunit = subdevice<avr8_fakertc_async_controller_device>("asyncunit");
-
 	while (m_icount > 0)
 	{
 		if (m_sleeping)
@@ -4652,27 +4649,22 @@ void avr8_device::execute_run()
 				}
 			}
 
-			syncprescale->tick();
+			m_syncprescale->tick();
 			for (int i = 0; i < m_timers.size(); i++)
 			{
 				if (m_timers[i])
 				{
-					// simulate full clk_io cycle; if timer is set to tick in sync with
-					// clk_io, it will be ticked on the rising edge
-					m_timers[i]->clk_io_w(1);
-					m_timers[i]->clk_io_w(0);
+					// this is for synchronous timers ONLY.
+					// if you name your timer "timerX" it will be ticked here!
+					m_timers[i]->tick();
 				}
 			}
 
-			if (asyncunit != NULL)
+			if (m_asyncunit != NULL)
 			{
-				asyncunit->clk_io_w(1);
-				asyncunit->clk_io_w(0);
+				m_asyncunit->clk_io_w(1);
+				m_asyncunit->clk_io_w(0);
 			}
-
-			// m_timer_prescale_count[2]++;
-			// if (m_timer_prescale_count[2] > m_timer_prescale[2])
-			// 	m_timer2_tick();
 
 			if (!m_sei_delay_pending)
 			{

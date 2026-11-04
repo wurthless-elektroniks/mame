@@ -88,6 +88,9 @@ protected:
  * 1 = OR modulate). At all other times it simply routes the PORTx bit
  * straight to the output pin. In all cases the DDR setting on the receiving
  * GPIO driver always applies.
+ * 
+ * TODO: this should probably be moved out to the pin matrix driver if and
+ * when that ever gets made into a device.
  */
 class avr8_output_compare_modulator_device : public device_t
 {
@@ -313,8 +316,6 @@ protected:
     inline void clear_icf() { clear_int<AVR8_TIMER_INTCHANNEL_IC>(); }
 
     void sample_t_input();
-
-    virtual bool is_async_mode() { return false; } // default assumes synchronous timer, so always returns false
 
     // return number of bits in this timer (8, 16)
     virtual uint32_t get_num_bits() const = 0;
@@ -795,7 +796,6 @@ protected:
         const device_type device_type);
 
     virtual uint32_t get_num_bits() const override { return 8; }
-    virtual bool is_async_mode() override { return true; } // ignore attempts by main exec loop to tick the timer
 };
 
 

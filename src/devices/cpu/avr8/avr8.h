@@ -1331,6 +1331,10 @@ protected:
 	void timsk5_w(uint8_t data);
 
 	void timer5_tick();
+
+
+	required_device<avr8_10bit_prescaler_device> m_syncprescale;
+	optional_device<avr8_fakertc_async_controller_device> m_asyncunit;
 };
 
 // ======================> megaavr_classic_base_device

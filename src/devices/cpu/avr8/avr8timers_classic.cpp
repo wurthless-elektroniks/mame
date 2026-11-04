@@ -270,7 +270,7 @@ void avr8_base_timer_device::clear_int()
 
 void avr8_base_timer_device::clk_io_w(uint8_t data)
 {
-    if (!m_clk_io && data != 0 && !is_async_mode())
+    if (!m_clk_io && data != 0)
     {
         tick();
     }
@@ -341,8 +341,8 @@ template void avr8_base_timer_device::com_w<AVR8_TIMER_CMPCHANNEL_OC_C>(uint8_t)
 
 void avr8_base_timer_device::sample_t_input()
 {
+    // TODO: this really belongs in a pin matrix driver
     if (m_t == m_t_last) return;
-
     m_t_rising = !m_t_last && m_t;
     m_t_falling = m_t_last && !m_t;
 }
