@@ -42,6 +42,17 @@ enum avr8_timer_cmpchannel : uint8_t
 class avr8_10bit_prescaler_device : public device_t 
 {
 public:
+    
+    enum : uint32_t 
+    {
+        AVR8_PRESCALER_TAPMASK_DIV8    = (1 << 0),
+        AVR8_PRESCALER_TAPMASK_DIV32   = (1 << 1),
+        AVR8_PRESCALER_TAPMASK_DIV64   = (1 << 2),
+        AVR8_PRESCALER_TAPMASK_DIV128  = (1 << 3),
+        AVR8_PRESCALER_TAPMASK_DIV256  = (1 << 4),
+        AVR8_PRESCALER_TAPMASK_DIV1024 = (1 << 5),
+    };
+
     avr8_10bit_prescaler_device(const machine_config &mconfig,
                                 const char *tag,
                                 device_t *owner,
@@ -56,9 +67,7 @@ public:
     void sync_w(uint8_t data);
     uint8_t sync_r();
 
-    // NOTE: this condition is only true on the clock cycle the division is satisfied.
-    template <int Modulo>
-    inline uint8_t clkdiv_r() { return !m_sync && (m_count % Modulo) == 0; }
+    inline uint32_t taps_r() const { return m_taps; }
 
     // device-level overrides
 	virtual void device_start() override ATTR_COLD;
@@ -68,6 +77,7 @@ protected:
     // internal registers, MUST BE SAVESTATE-ABLE
     uint16_t m_count;
     bool m_sync;
+    uint32_t m_taps;
 };
 
 /**
@@ -129,12 +139,6 @@ public:
         AVR8_TIMER_COM_SET    = 0b11
     };
 
-    /**
-     * Force-unmaps a given WGM mode, needed if the AVR8 variant
-     * doesn't support the given timer mode.
-     */
-    void unmap_wgm_mode(uint8_t which);
-
     // set callbacks for OCxx line state changes, where applicable
     template <uint8_t Channel> auto oc_w_cb() { return m_oc_w_cbs[Channel].bind(); }
     template <uint8_t Channel> auto oc_en_w_cb() { return m_oc_en_w_cbs[Channel].bind(); }
@@ -157,7 +161,8 @@ public:
     void prtim_w(uint8_t data);
     uint8_t prtim_r();
 
-    virtual void wgm_w(uint8_t data) = 0; // WGM modes vary between each timer type, and WGM changes must change output pins
+    // WGM modes vary between each timer type, and WGM changes must change output pins,
+    // so there is no wgm_w().
     uint8_t wgm_r() { return m_wgm; }
 
     /**
@@ -257,7 +262,11 @@ protected:
 
     bool m_no_compare_this_cycle; // set if TCNTx is written; blocks compare operation on current timer cycle
 
+    bool m_ocr_changed;
+
     bool m_clk_io; // clk_io signal; derived from master clock. typically the same as the CPU clcok
+
+    uint32_t m_max;
 
     // OCxx output callbacks when enabling/disabling the outputs
     // so downstream GPIO drivers and other devices can react.
@@ -265,9 +274,6 @@ protected:
     devcb_write_line::array<AVR8_TIMER_CMPCHANNEL_MAX> m_oc_w_cbs; // OCxx outputs (data will be 0 or 1)
     devcb_write_line::array<AVR8_TIMER_CMPCHANNEL_MAX> m_oc_toggle_w_cbs; // OCxx toggle request (value irrelevant)
     
-    // Callback table that points a wgm value to the timer advance function
-    avr8_base_timer_device::timer_func m_wgm_cbs[0x100];
-
     void advance_illegal_wgm_state();
 
     // device-level overrides
@@ -276,7 +282,7 @@ protected:
 
     // Generic counter update/compare functions.
     // It is guaranteed that calling these will have NO unexpected side effects.
-    inline uint32_t max_count() { return (1 << get_num_bits()) - 1; } // return MAX value (0xff for 8-bit timers, 0xffff for 16-bit timers, etc.)
+    inline uint32_t max_count() { return m_max; } // return MAX value (0xff for 8-bit timers, 0xffff for 16-bit timers, etc.)
     inline uint32_t next_count() { return (m_tcnt + 1) & max_count(); } // return TCNT+1, wrapping to zero on overflow
     inline uint32_t prev_count() { return (m_tcnt - 1) & max_count(); } // return TCNT-1, wrapping to MAX on underflow
     inline bool will_next_count_overflow() { return m_tcnt != 0 && next_count() == 0; } // return true if tcnt will wrap
@@ -288,7 +294,8 @@ protected:
     inline bool is_max_count() { return m_tcnt == max_count(); }
     inline bool is_min_count() { return m_tcnt == 0; }
     
-    inline void reload_ocrs() { std::copy(m_ocr_buf.begin(), m_ocr_buf.end(), m_ocr.begin()); }
+    // TODO: move into .cpp
+    inline void reload_ocrs() { std::copy(m_ocr_buf.begin(), m_ocr_buf.end(), m_ocr.begin()); m_ocr_changed = false; }
 
     template <uint8_t Channel> void raise_int();
     template <uint8_t Channel> void clear_int();
@@ -309,20 +316,13 @@ protected:
 
     virtual bool is_async_mode() { return false; } // default assumes synchronous timer, so always returns false
 
-    // WGM callbacks install
-    virtual void install_wgm_callbacks() = 0;
-
     // return number of bits in this timer (8, 16)
     virtual uint32_t get_num_bits() const = 0;
 
     // Generic implementation of the "Normal" timer mode, which advances until overflow,
     // then sets the TOV interrupt flag upon wrap to zero.
     // This does not implement the OCxx toggles; subclasses must do that.
-    virtual void advance_normal();
-
-    // Called before the active wgm callback runs. If true, then OCR values
-    // will be reloaded from the OCR buffer registers.
-    virtual bool should_reload_ocrs() = 0;
+    void advance_normal_generic();
 
     /**
      * Updates the OC channel (assuming its output has already been enabled).
@@ -337,7 +337,7 @@ protected:
               uint8_t SetState,
               uint8_t ClearState,
               bool Toggling>
-    void update_oc();
+    inline void update_oc();
 
     template <uint8_t Channel> inline void update_oc_generic() { update_oc<Channel, 1, 0, true>(); }
     template <uint8_t Channel> inline void update_oc_generic_inverse() { update_oc<Channel, 0, 1, true>(); }
@@ -507,7 +507,8 @@ public:
  */
 class avr8_generic_8bit_timer_device : public avr8_base_timer_device
 {
-    enum : uint8_t
+public:
+enum : uint8_t
     {
         /**
          * Normal mode (WGM 0b000): Counts from 0 to 255. TOV0 is set upon
@@ -551,11 +552,12 @@ class avr8_generic_8bit_timer_device : public avr8_base_timer_device
         GENERIC_8BIT_TIMER_WGM_FAST_PWM_OCR_A = 0b111,
     };
 
-public:
-    template <uint8_t Channel> void ocr_w(uint8_t data) { m_ocr_buf[Channel] = data; }
+    // TODO: move to .cpp
+    template <uint8_t Channel> void ocr_w(uint8_t data) { m_ocr_buf[Channel] = data; m_ocr_changed = true; }
+    
     template <uint8_t Channel> uint8_t ocr_r() { return m_ocr[Channel]; }
 
-    void wgm_w(uint8_t data) override;
+    void wgm_w(uint8_t data);
 
 protected:
     avr8_generic_8bit_timer_device(const machine_config &mconfig,
@@ -564,21 +566,19 @@ protected:
                                  uint32_t clock,
                                  const device_type device_type);
 
-    virtual void install_wgm_callbacks() override;
-
-    void advance_ctc();
-    void advance_pwm();
-    void advance_pwm_ocr_a();
-    void advance_fast_pwm();
-    void advance_fast_pwm_ocr_a();     
+    inline void advance_normal();
+    inline void advance_ctc();
+    inline void advance_pwm();
+    inline void advance_pwm_ocr_a();
+    inline void advance_fast_pwm();
+    inline void advance_fast_pwm_ocr_a();     
 
     void force_oc0a(); // force OC0A output as if comparison happened; does not set interrupt flag
     void force_oc0b(); // force OC0B output as if comparison happened; does not set interrupt flag
 
     virtual uint32_t get_num_bits() const override { return 8; }
-    virtual void advance_normal() override;
 
-    virtual bool should_reload_ocrs() override;
+    inline bool should_reload_ocrs();
 };
 
 class avr8_generic_t0_timer_device : public avr8_generic_8bit_timer_device
@@ -718,7 +718,7 @@ public:
 
     virtual bool com_mode_allows_output(uint8_t channel) override;
 
-    virtual void wgm_w(uint8_t data) override;
+    void wgm_w(uint8_t data);
     virtual void cs_w(uint8_t data) override;
 
 	virtual void device_start() override ATTR_COLD;
@@ -736,24 +736,23 @@ protected:
     
     bool m_ocr_c_enabled; // true only on devices that have 3-channel 16-bit timers
 
-    virtual void install_wgm_callbacks() override;
-    virtual void advance_normal() override;
+
 
     virtual uint32_t get_num_bits() const override { return 16; }
 
-    virtual bool should_reload_ocrs() override;
-
-    void advance_pwm_common(uint16_t top);
-    void advance_pwm_8bit();
-    void advance_pwm_9bit();
-    void advance_pwm_10bit();
-    void advance_fast_pwm_common(uint16_t top);
-    void advance_fast_pwm_8bit();
-    void advance_fast_pwm_9bit();
-    void advance_fast_pwm_10bit();
-    void advance_ctc_ocr_a();
-    void advance_fast_pwm_icr();
-    void advance_fast_pwm_ocr_a();
+    inline bool should_reload_ocrs();
+    inline void advance_normal();
+    inline void advance_pwm_common(uint16_t top);
+    inline void advance_pwm_8bit();
+    inline void advance_pwm_9bit();
+    inline void advance_pwm_10bit();
+    inline void advance_fast_pwm_common(uint16_t top);
+    inline void advance_fast_pwm_8bit();
+    inline void advance_fast_pwm_9bit();
+    inline void advance_fast_pwm_10bit();
+    inline void advance_ctc_ocr_a();
+    inline void advance_fast_pwm_icr();
+    inline void advance_fast_pwm_ocr_a();
 };
 
 /**

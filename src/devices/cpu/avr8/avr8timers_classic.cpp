@@ -175,13 +175,11 @@ void avr8_base_timer_device::device_start()
     save_item(NAME(m_prtim));
     save_item(NAME(m_t));
     save_item(NAME(m_t_last));
+    save_item(NAME(m_ocr_changed));
 
-    for (int i = 0; i < 0x100; i++)
-    {
-        m_wgm_cbs[i] = avr8_base_timer_device::timer_func(&avr8_base_timer_device::advance_illegal_wgm_state, this);
-    }
-
-    install_wgm_callbacks();
+    
+    m_max = (1 << get_num_bits()) - 1;
+    save_item(NAME(m_max));
 }
 
 void avr8_base_timer_device::device_reset()
@@ -213,6 +211,7 @@ template <uint8_t Channel>
 void avr8_base_timer_device::int_w(uint8_t data)
 {
     if (!data) return;
+    if (!m_int[Channel]) return;
 
     // any nonzero write to the interrupt flag (from the CPU program) will clear the interrupt
     m_int[Channel] = false;
@@ -230,6 +229,8 @@ void avr8_base_timer_device::int_ack_w(uint8_t data)
 template <uint8_t Channel> 
 void avr8_base_timer_device::int_en_w(uint8_t data)
 {
+    if ((data != 0) == m_int_en[Channel]) return;
+
     m_int_en[Channel] = data != 0;
     if (!m_int_cbs[Channel].isunset()) m_int_cbs[Channel](m_int_en[Channel] && m_int[Channel]);
 }
@@ -254,6 +255,7 @@ template void avr8_base_timer_device::int_ack_w<AVR8_TIMER_INTCHANNEL_IC>(uint8_
 template <uint8_t Channel> 
 void avr8_base_timer_device::raise_int()
 {
+    if (m_int[Channel]) return;
     m_int[Channel] = true;
     if (m_int_en[Channel] && !m_int_cbs[Channel].isunset()) m_int_cbs[Channel](1);
 }
@@ -261,6 +263,7 @@ void avr8_base_timer_device::raise_int()
 template <uint8_t Channel> 
 void avr8_base_timer_device::clear_int()
 {
+    if (!m_int[Channel]) return;
     m_int[Channel] = false;
     if (m_int_en[Channel] && !m_int_cbs[Channel].isunset()) m_int_cbs[Channel](0);
 }
@@ -279,7 +282,7 @@ void avr8_base_timer_device::advance_illegal_wgm_state()
     logerror("%s: advance timer on illegal/unimplemented wgm state %02x\n", machine().describe_context(), m_wgm);
 }
 
-void avr8_base_timer_device::advance_normal()
+void avr8_base_timer_device::advance_normal_generic()
 {
     if (will_next_count_overflow())
     {
@@ -299,6 +302,7 @@ void avr8_base_timer_device::update_oc()
         return;
     }
 
+    // TODO: this is a huge bottleneck. uzebox arkanoid loses 10% performance to this.
     switch (m_com[Channel])
     {
         case AVR8_TIMER_COM_TOGGLE:
@@ -355,11 +359,13 @@ void avr8_10bit_prescaler_device::device_start()
 {
     save_item(NAME(m_count));
     save_item(NAME(m_sync));
+    save_item(NAME(m_taps));
 }
 
 void avr8_10bit_prescaler_device::device_reset()
 {
     m_count = 0;
+    m_taps = 0;
     m_sync = false;
 }
 
@@ -368,6 +374,14 @@ void avr8_10bit_prescaler_device::tick()
     // TODO: this is a guess; if the signals rise and stay risen
     // then they should not cause the timers downstream to advance
     int next_count = m_sync ? 0 : (m_count + 1) & 0x3ff;
+
+    m_taps = 0;
+    if ((next_count % 8) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV8;
+    if ((next_count % 32) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV32;
+    if ((next_count % 64) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV64;
+    if ((next_count % 128) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV128;
+    if ((next_count % 256) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV256;
+    if ((next_count % 1024) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV1024;
 
     m_count = next_count;
 }
@@ -527,15 +541,6 @@ avr8_generic_8bit_timer_device::avr8_generic_8bit_timer_device(const machine_con
     avr8_base_timer_device(mconfig, device_type, tag, owner, clock)
 { }
 
-void avr8_generic_8bit_timer_device::install_wgm_callbacks()
-{
-    m_wgm_cbs[GENERIC_8BIT_TIMER_WGM_NORMAL] = timer_func(&avr8_generic_8bit_timer_device::advance_normal, this);
-    m_wgm_cbs[GENERIC_8BIT_TIMER_WGM_CTC] = timer_func(&avr8_generic_8bit_timer_device::advance_ctc, this);
-    m_wgm_cbs[GENERIC_8BIT_TIMER_WGM_PWM] = timer_func(&avr8_generic_8bit_timer_device::advance_pwm, this);
-    m_wgm_cbs[GENERIC_8BIT_TIMER_WGM_FAST_PWM] = timer_func(&avr8_generic_8bit_timer_device::advance_fast_pwm, this);
-    m_wgm_cbs[GENERIC_8BIT_TIMER_WGM_FAST_PWM_OCR_A] = timer_func(&avr8_generic_8bit_timer_device::advance_fast_pwm_ocr_a, this);
-}
-
 // TOP = MAX
 // TOV flag set on MAX (so if OCRA is hit, no interrupt is generated)
 void avr8_generic_8bit_timer_device::advance_normal()
@@ -552,7 +557,7 @@ void avr8_generic_8bit_timer_device::advance_normal()
         update_oc_generic<AVR8_TIMER_CMPCHANNEL_OC_B>();
     }
 
-    avr8_base_timer_device::advance_normal();
+    advance_normal_generic();
 }
 
 
@@ -741,17 +746,15 @@ void avr8_generic_8bit_timer_device::advance_fast_pwm_ocr_a()
     if (is_compare_a())
     {
         update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_A>();
-        hit_top = true;    
+        hit_top = true;
+        raise_ocf_a();
+        raise_tov(); // since TOP was hit and we are about to wrap
     }
 
     if (is_compare_b())
     {
+        raise_ocf_b();
         update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_B>();
-    }
-    
-    if (will_next_count_overflow())
-    {
-        raise_tov();
     }
 
     if (is_min_count())
@@ -849,21 +852,43 @@ void avr8_generic_t0_timer_device::tick()
         return;
     }
 
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV8 && !m_upstream_prescaler->clkdiv_r<8>()) return;
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV64 && !m_upstream_prescaler->clkdiv_r<64>()) return;
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV256 && !m_upstream_prescaler->clkdiv_r<256>()) return;
-    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV1024 && !m_upstream_prescaler->clkdiv_r<1024>()) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV8 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV8)) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV64 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV64)) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV256 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV256)) return;
+    if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV1024 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV1024)) return;
     if (m_cs == GENERIC_TIMER0_CS_T0_FALL && !m_t_falling) return;
     if (m_cs == GENERIC_TIMER0_CS_T0_RISE && !m_t_rising) return;
     // GENERIC_TIMER0_CS_DIRECT = just fall through
 
-    if (should_reload_ocrs())
+    if (m_ocr_changed && should_reload_ocrs())
     {
         reload_ocrs();
     }
 
     LOGMASKED(LOG_TIMER0_TICK, "%s: running wgm callback %d\n", machine().describe_context(), m_wgm);
-    m_wgm_cbs[m_wgm]();
+    
+    switch(m_wgm)
+    {
+        case GENERIC_8BIT_TIMER_WGM_NORMAL:
+            advance_normal();
+            break;
+        case GENERIC_8BIT_TIMER_WGM_CTC:
+            advance_ctc();
+            break;
+        case GENERIC_8BIT_TIMER_WGM_PWM:
+            advance_pwm();
+            break;
+        case GENERIC_8BIT_TIMER_WGM_FAST_PWM:
+            advance_fast_pwm();
+            break;
+        case GENERIC_8BIT_TIMER_WGM_FAST_PWM_OCR_A:
+            advance_fast_pwm_ocr_a();
+            break;
+        default:
+            advance_illegal_wgm_state();
+            break;
+    }
+
     m_no_compare_this_cycle = false; // because the current timer cycle has ended
 }
 
@@ -934,26 +959,6 @@ void avr8_generic_t1_timer_device::device_reset()
     m_icr = 0;
 } 
 
-void avr8_generic_t1_timer_device::install_wgm_callbacks()
-{
-    m_wgm_cbs[GENERIC_TIMER1_WGM_NORMAL] = timer_func(&avr8_generic_t1_timer_device::advance_normal, this);
-    m_wgm_cbs[GENERIC_TIMER1_WGM_PWM_8_BIT] = timer_func(&avr8_generic_t1_timer_device::advance_pwm_8bit, this);
-    m_wgm_cbs[GENERIC_TIMER1_WGM_PWM_9_BIT] = timer_func(&avr8_generic_t1_timer_device::advance_pwm_9bit, this);
-    m_wgm_cbs[GENERIC_TIMER1_WGM_PWM_10_BIT] = timer_func(&avr8_generic_t1_timer_device::advance_pwm_10bit, this);
-    m_wgm_cbs[GENERIC_TIMER1_WGM_CTC] = timer_func(&avr8_generic_t1_timer_device::advance_ctc_ocr_a, this);
-    m_wgm_cbs[GENERIC_TIMER1_WGM_FAST_PWM_8_BIT] = timer_func(&avr8_generic_t1_timer_device::advance_fast_pwm_8bit, this);
-    m_wgm_cbs[GENERIC_TIMER1_WGM_FAST_PWM_9_BIT] = timer_func(&avr8_generic_t1_timer_device::advance_fast_pwm_9bit, this);
-    m_wgm_cbs[GENERIC_TIMER1_WGM_FAST_PWM_10_BIT] = timer_func(&avr8_generic_t1_timer_device::advance_fast_pwm_10bit, this);
-    // GENERIC_TIMER1_WGM_PWM_PFC_ICR1    = 0b1000, // phase/frequency correct; TOP = ICR1
-    // GENERIC_TIMER1_WGM_PWM_PFC_OCR1A   = 0b1001, // phase/frequency correct; TOP = OCR1A
-    // GENERIC_TIMER1_WGM_PWM_ICR1        = 0b1010, // phase-correct; TOP = ICR1
-    // GENERIC_TIMER1_WGM_PWM_OCR1A       = 0b1011, // phase-correct; TOP = OCR1A
-    // GENERIC_TIMER1_WGM_CTC_ICR1        = 0b1100, // CTC: count to ICR1
-    // // 0b1101: reserved/illegal
-    m_wgm_cbs[GENERIC_TIMER1_WGM_FAST_PWM_ICR1] = timer_func(&avr8_generic_t1_timer_device::advance_fast_pwm_icr, this);
-    m_wgm_cbs[GENERIC_TIMER1_WGM_FAST_PWM_OCRA] = timer_func(&avr8_generic_t1_timer_device::advance_fast_pwm_ocr_a, this);
-}
-
 void avr8_generic_t1_timer_device::tick()
 {
     // this routine very obviously copypasted from timer 0.
@@ -971,22 +976,62 @@ void avr8_generic_t1_timer_device::tick()
         return;
     }
 
-    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV8 && !m_upstream_prescaler->clkdiv_r<8>()) return;
-    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV64 && !m_upstream_prescaler->clkdiv_r<64>()) return;
-    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV256 && !m_upstream_prescaler->clkdiv_r<256>()) return;
-    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV1024 && !m_upstream_prescaler->clkdiv_r<1024>()) return;
+    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV8 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV8)) return;
+    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV64 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV64)) return;
+    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV256 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV256)) return;
+    if (m_cs == GENERIC_TIMER1_CS_PRESCALE_DIV1024 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV1024)) return;
     if (m_cs == GENERIC_TIMER1_CS_T1_FALL && !m_t_falling) return;
     if (m_cs == GENERIC_TIMER1_CS_T1_RISE && !m_t_rising) return;
     // GENERIC_TIMER1_CS_DIRECT = just fall through
 
-    if (should_reload_ocrs())
+    if (m_ocr_changed && should_reload_ocrs())
     {
         reload_ocrs();
     }
 
     // LOGMASKED(LOG_TIMER1_TICK, "%s: running wgm callback %d\n", machine().describe_context(), m_wgm);
+    switch (m_wgm)
+    {
+        case GENERIC_TIMER1_WGM_NORMAL:
+            advance_normal();
+            break;
+        case GENERIC_TIMER1_WGM_PWM_8_BIT:
+            advance_pwm_8bit();
+            break;
+        case GENERIC_TIMER1_WGM_PWM_9_BIT:
+            advance_pwm_9bit();
+            break;
+        case GENERIC_TIMER1_WGM_PWM_10_BIT:
+            advance_pwm_10bit();
+            break;
+        case GENERIC_TIMER1_WGM_CTC:
+            advance_ctc_ocr_a();
+            break;
+        case GENERIC_TIMER1_WGM_FAST_PWM_8_BIT:
+            advance_fast_pwm_8bit();
+            break;
+        case GENERIC_TIMER1_WGM_FAST_PWM_9_BIT:
+            advance_fast_pwm_9bit();
+            break;
+        case GENERIC_TIMER1_WGM_FAST_PWM_10_BIT:
+            advance_fast_pwm_10bit();
+            break;
+        // GENERIC_TIMER1_WGM_PWM_PFC_ICR1    = 0b1000, // phase/frequency correct; TOP = ICR1
+        // GENERIC_TIMER1_WGM_PWM_PFC_OCR1A   = 0b1001, // phase/frequency correct; TOP = OCR1A
+        // GENERIC_TIMER1_WGM_PWM_ICR1        = 0b1010, // phase-correct; TOP = ICR1
+        // GENERIC_TIMER1_WGM_PWM_OCR1A       = 0b1011, // phase-correct; TOP = OCR1A
+        // GENERIC_TIMER1_WGM_CTC_ICR1        = 0b1100, // CTC: count to ICR1
+        case GENERIC_TIMER1_WGM_FAST_PWM_ICR1:
+            advance_fast_pwm_icr();
+            break;
+        case GENERIC_TIMER1_WGM_FAST_PWM_OCRA:
+            advance_fast_pwm_ocr_a();
+            break;
+        default:
+            advance_illegal_wgm_state();
+            break;
+    }
 
-    m_wgm_cbs[m_wgm]();
     m_no_compare_this_cycle = false; // because the current timer cycle has ended
 }
 
@@ -1015,7 +1060,7 @@ void avr8_generic_t1_timer_device::advance_normal()
     }
 
     // fall through to normal case, which will catch the wraparound and set TOV1
-    avr8_base_timer_device::advance_normal();
+    advance_normal_generic();
 }
 
 void avr8_generic_t1_timer_device::advance_pwm_common(uint16_t top)
@@ -1024,55 +1069,39 @@ void avr8_generic_t1_timer_device::advance_pwm_common(uint16_t top)
    
     if (is_compare_a())
     {
-        // TODO: confirm this; datasheet phrasing is a bit odd
-        if (m_ocr[AVR8_TIMER_CMPCHANNEL_OC_A] != max_count())
-        {
-            raise_ocf_a();
-        }
-
-        // TODO: flags etc.
-    }
-
-    if (!m_dual_slope_counting_down && next_count_value == top)
-    {
-        m_dual_slope_counting_down = !m_dual_slope_counting_down;
+        raise_ocf_a();
+        if (m_dual_slope_counting_down)
+            update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_A>();
+        else
+            update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_A>();
     }
 
     if (is_compare_b())
     {
-        // TODO: confirm this; datasheet phrasing is a bit odd
-        if (m_ocr[AVR8_TIMER_CMPCHANNEL_OC_B] != max_count())
-        {
-            raise_ocf_b();
-        }
-
+        raise_ocf_b();
         if (m_dual_slope_counting_down)
-            update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_C>();
+            update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_B>();
         else
-            update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_C>();
+            update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_B>();
     }
 
     if (m_ocr_c_enabled && is_compare_c())
     {
-        // TODO: confirm this; datasheet phrasing is a bit odd
-        if (m_ocr[AVR8_TIMER_CMPCHANNEL_OC_C] != max_count())
-        {
-            raise_ocf_c();
-        }
-
+        raise_ocf_c();
         if (m_dual_slope_counting_down)
             update_oc_generic_notoggle<AVR8_TIMER_CMPCHANNEL_OC_C>();
         else
             update_oc_generic_notoggle_inverse<AVR8_TIMER_CMPCHANNEL_OC_C>();
     }
 
-    if (m_dual_slope_counting_down && next_count_value == 0)
+    if ((m_dual_slope_counting_down && will_prev_count_reach_bottom()) ||
+        (!m_dual_slope_counting_down && next_count_value == top))
     {
+        // toggle direction when about to hit TOP or BOTTOM
         m_dual_slope_counting_down = !m_dual_slope_counting_down;
     }
     else if (is_min_count())
     {
-        // BOTTOM hit; raise interrupt
         raise_tov();
     }
 
@@ -1336,7 +1365,7 @@ uint8_t avr8_generic_t1_timer_device::tcnt_h_r()
 void avr8_generic_t1_timer_device::tcnt_l_w(uint8_t data)
 {
     m_tcnt = (m_temp << 8) | data;
-    LOGMASKED(LOG_TIMER1, "%s: tcnt changing to %04x\n", machine().describe_context(), m_tcnt);
+    // LOGMASKED(LOG_TIMER1, "%s: tcnt changing to %04x\n", machine().describe_context(), m_tcnt);
 }
 
 uint8_t avr8_generic_t1_timer_device::tcnt_l_r()
@@ -1351,7 +1380,7 @@ void avr8_generic_t1_timer_device::ocr_h_w(uint8_t data)
 {
     // Channel doesn't matter here because data always ends up in the temp register.
     // however, you can use it for debuglogging.
-    LOGMASKED(LOG_TIMER1, "%s: OCRx%cH setting temp register to %02x\n", machine().describe_context(), 'A' + Channel, data);
+    // LOGMASKED(LOG_TIMER1, "%s: OCRx%cH setting temp register to %02x\n", machine().describe_context(), 'A' + Channel, data);
     m_temp = data;
 }
 
@@ -1363,7 +1392,8 @@ template <uint8_t Channel>
 void avr8_generic_t1_timer_device::ocr_l_w(uint8_t data)
 {
     m_ocr_buf[Channel] = (m_temp << 8) | data;
-    LOGMASKED(LOG_TIMER1, "%s: OCR %c switching to %04x\n", machine().describe_context(), 'A' + Channel, m_ocr_buf[Channel]);
+    m_ocr_changed = true;
+    // LOGMASKED(LOG_TIMER1, "%s: OCR %c switching to %04x\n", machine().describe_context(), 'A' + Channel, m_ocr_buf[Channel]);
 }
 
 template void avr8_generic_t1_timer_device::ocr_l_w<AVR8_TIMER_CMPCHANNEL_OC_A>(uint8_t data);
@@ -1508,19 +1538,41 @@ void avr8_generic_fakertc_timer_device::tick()
         return;
     }
 
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV8 && !m_upstream_prescaler->clkdiv_r<8>()) return;
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV32 && !m_upstream_prescaler->clkdiv_r<32>()) return;
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV64 && !m_upstream_prescaler->clkdiv_r<64>()) return;
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV128 && !m_upstream_prescaler->clkdiv_r<128>()) return;
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV256 && !m_upstream_prescaler->clkdiv_r<256>()) return;
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV1024 && !m_upstream_prescaler->clkdiv_r<1024>()) return;
+    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV8 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV8)) return;
+    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV32 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV32)) return;
+    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV64 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV64)) return;
+    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV128 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV128)) return;
+    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV256 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV256)) return;
+    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV1024 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV1024)) return;
 
-    if (should_reload_ocrs())
+    if (m_ocr_changed && should_reload_ocrs())
     {
         reload_ocrs();
     }
 
-    m_wgm_cbs[m_wgm]();
+    // TODO: unify this and generic timer0
+    switch(m_wgm)
+    {
+        case GENERIC_8BIT_TIMER_WGM_NORMAL:
+            advance_normal();
+            break;
+        case GENERIC_8BIT_TIMER_WGM_CTC:
+            advance_ctc();
+            break;
+        case GENERIC_8BIT_TIMER_WGM_PWM:
+            advance_pwm();
+            break;
+        case GENERIC_8BIT_TIMER_WGM_FAST_PWM:
+            advance_fast_pwm();
+            break;
+        case GENERIC_8BIT_TIMER_WGM_FAST_PWM_OCR_A:
+            advance_fast_pwm_ocr_a();
+            break;
+        default:
+            advance_illegal_wgm_state();
+            break;
+    }
+
     m_no_compare_this_cycle = false; // because the current timer cycle has ended
 }
 
