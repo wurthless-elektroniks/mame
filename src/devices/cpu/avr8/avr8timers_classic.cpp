@@ -358,16 +358,12 @@ void avr8_10bit_prescaler_device::tick()
 {
     // TODO: this is a guess; if the signals rise and stay risen
     // then they should not cause the timers downstream to advance
+    // 
+    // this is also somewhat of a performance bottleneck because the
+    // downstream timers will be ticked regardless of if the condition is
+    // satisfied for this prescaler clock cycle.
     int next_count = m_sync ? 0 : (m_count + 1) & 0x3ff;
-
-    m_taps = 0;
-    if ((next_count % 8) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV8;
-    if ((next_count % 32) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV32;
-    if ((next_count % 64) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV64;
-    if ((next_count % 128) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV128;
-    if ((next_count % 256) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV256;
-    if ((next_count % 1024) == 0) m_taps |= AVR8_PRESCALER_TAPMASK_DIV1024;
-
+    m_taps = ((m_count & ~next_count) << 1);
     m_count = next_count;
 }
 

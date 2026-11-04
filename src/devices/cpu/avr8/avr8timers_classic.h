@@ -45,12 +45,12 @@ public:
     
     enum : uint32_t 
     {
-        AVR8_PRESCALER_TAPMASK_DIV8    = (1 << 0),
-        AVR8_PRESCALER_TAPMASK_DIV32   = (1 << 1),
-        AVR8_PRESCALER_TAPMASK_DIV64   = (1 << 2),
-        AVR8_PRESCALER_TAPMASK_DIV128  = (1 << 3),
-        AVR8_PRESCALER_TAPMASK_DIV256  = (1 << 4),
-        AVR8_PRESCALER_TAPMASK_DIV1024 = (1 << 5),
+        AVR8_PRESCALER_TAPMASK_DIV8    = 8,
+        AVR8_PRESCALER_TAPMASK_DIV32   = 32,
+        AVR8_PRESCALER_TAPMASK_DIV64   = 64,
+        AVR8_PRESCALER_TAPMASK_DIV128  = 128,
+        AVR8_PRESCALER_TAPMASK_DIV256  = 256,
+        AVR8_PRESCALER_TAPMASK_DIV1024 = 1024
     };
 
     avr8_10bit_prescaler_device(const machine_config &mconfig,
