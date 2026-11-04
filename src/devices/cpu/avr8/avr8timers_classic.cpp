@@ -147,7 +147,7 @@ DEFINE_DEVICE_TYPE(AVR8_CLASSIC_OUTPUT_COMPARE_MODULATOR, avr8_output_compare_mo
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_GENERIC_FAKE_RTC_TIMER, avr8_generic_fakertc_timer_device, "cavr8frtct", "Classic AVR8 asynchronous 8-bit timer");
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_FAKE_RTC_TIMER, avr8_megaavr_fakertc_timer_device, "cmegaavrfrtct", "Classic megaAVR asynchronous 8-bit timer");
 DEFINE_DEVICE_TYPE(AVR8_CLASSIC_FAKE_RTC_ASYNC_CONTROLLER, avr8_fakertc_async_controller_device, "cavr8frtcc", "Classic AVR8 asynchronous timer control unit");
-DEFINE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_FAKE_RTC_ASYNC_CONTROLLER, avr8_megaavr_fakertc_async_controller_device, "cavr8frtcc", "Classic megaAVR asynchronous timer control unit");
+DEFINE_DEVICE_TYPE(AVR8_CLASSIC_MEGAAVR_FAKE_RTC_ASYNC_CONTROLLER, avr8_megaavr_fakertc_async_controller_device, "cmegaavrfrtcc", "Classic megaAVR asynchronous timer control unit");
 
 ///////////////////////////////////////////////////////////////
 // BASE TIMER
@@ -297,31 +297,16 @@ template <uint8_t Channel,
             bool Toggling>
 void avr8_base_timer_device::update_oc()
 {
+    if (m_com[Channel] == AVR8_TIMER_COM_NORMAL) return;
+
     if (m_oc_w_cbs[Channel].isunset() || m_oc_toggle_w_cbs[Channel].isunset())
     {
         return;
     }
 
-    // TODO: this is a huge bottleneck. uzebox arkanoid loses 10% performance to this.
-    switch (m_com[Channel])
-    {
-        case AVR8_TIMER_COM_TOGGLE:
-            if (Toggling) m_oc_toggle_w_cbs[Channel](1);
-            break;
-
-        case AVR8_TIMER_COM_CLEAR:
-            m_oc_w_cbs[Channel](ClearState);
-            break;
-        
-        case AVR8_TIMER_COM_SET:
-            m_oc_w_cbs[Channel](SetState);
-            break;
-
-        case AVR8_TIMER_COM_NORMAL:
-        default:
-            // does nothing; pin disconnected
-            break;
-    }
+    if (Toggling && m_com[Channel] == AVR8_TIMER_COM_TOGGLE) m_oc_toggle_w_cbs[Channel](1);
+    else if (m_com[Channel] == AVR8_TIMER_COM_CLEAR) m_oc_w_cbs[Channel](ClearState);
+    else if (m_com[Channel] == AVR8_TIMER_COM_SET) m_oc_w_cbs[Channel](SetState);
 }
 
 template <uint8_t Channel>
@@ -844,7 +829,10 @@ void avr8_generic_t0_timer_device::tick()
 {
     if (m_prtim) return;
 
-    sample_t_input();
+    if (m_cs == GENERIC_TIMER0_CS_T0_FALL || m_cs == GENERIC_TIMER0_CS_T0_FALL)
+    {
+        sample_t_input();
+    }
 
     if (m_cs == GENERIC_TIMER0_CS_DISABLED)
     {
@@ -857,7 +845,7 @@ void avr8_generic_t0_timer_device::tick()
     if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV256 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV256)) return;
     if (m_cs == GENERIC_TIMER0_CS_PRESCALE_DIV1024 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV1024)) return;
     if (m_cs == GENERIC_TIMER0_CS_T0_FALL && !m_t_falling) return;
-    if (m_cs == GENERIC_TIMER0_CS_T0_RISE && !m_t_rising) return;
+    if (m_cs == GENERIC_TIMER0_CS_T0_FALL && !m_t_rising) return;
     // GENERIC_TIMER0_CS_DIRECT = just fall through
 
     if (m_ocr_changed && should_reload_ocrs())
@@ -934,10 +922,8 @@ avr8_generic_t1_timer_device::avr8_generic_t1_timer_device(const machine_config 
     const char *tag,
     device_t *owner,
     uint32_t clock) :
-    avr8_base_timer_device(mconfig, AVR8_CLASSIC_GENERIC_TIMER_1, tag, owner, clock)
-{
-    avr8_generic_t1_timer_device(mconfig, tag, owner, clock, AVR8_CLASSIC_GENERIC_TIMER_1);
-}
+    avr8_generic_t1_timer_device(mconfig, tag, owner, clock, AVR8_CLASSIC_GENERIC_TIMER_1)
+{}
 
 avr8_generic_t1_timer_device::avr8_generic_t1_timer_device(const machine_config &mconfig,
     const char *tag,
@@ -968,8 +954,12 @@ void avr8_generic_t1_timer_device::tick()
     if (m_prtim) return;
 
     // Tx pin is sampled on every I/O clock, so check that first
-    sample_t_input();
-    
+
+    if (m_cs == GENERIC_TIMER1_CS_T1_FALL || m_cs == GENERIC_TIMER1_CS_T1_RISE)
+    {
+        sample_t_input();
+    }
+
     if (m_cs == GENERIC_TIMER1_CS_DISABLED)
     {
         // LOGMASKED(LOG_TIMER1_TICK, "%s: timer is disabled (m_cs == GENERIC_TIMER1_CS_DISABLED), doing nothing.\n", machine().describe_context());
@@ -1538,12 +1528,15 @@ void avr8_generic_fakertc_timer_device::tick()
         return;
     }
 
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV8 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV8)) return;
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV32 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV32)) return;
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV64 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV64)) return;
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV128 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV128)) return;
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV256 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV256)) return;
-    if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV1024 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV1024)) return;
+    if (m_cs != GENERIC_FAKERTC_CS_DIRECT)
+    {
+        if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV8 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV8)) return;
+        if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV32 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV32)) return;
+        if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV64 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV64)) return;
+        if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV128 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV128)) return;
+        if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV256 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV256)) return;
+        if (m_cs == GENERIC_FAKERTC_CS_PRESCALE_DIV1024 && !(m_upstream_prescaler->taps_r() & avr8_10bit_prescaler_device::AVR8_PRESCALER_TAPMASK_DIV1024)) return;
+    }
 
     if (m_ocr_changed && should_reload_ocrs())
     {
