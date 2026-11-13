@@ -65,6 +65,7 @@ protected:
 
 	uint32_t m_last_cycles = 0;
 	uint64_t m_frame_start_cycle = 0;
+	uint64_t m_hsync_start_cycle = 0;
 
 	uint8_t m_latched_color = 0;
 	std::unique_ptr<uint8_t[]> m_pixels;
@@ -80,11 +81,20 @@ void lft_craft_state::port_b_w(uint8_t data)
 	m_gpio_b = data;
 	const uint8_t changed = data ^ old;
 
+	// both hblank and vblank are driven on this port; make a note of the time now.
+	const uint64_t now = machine().time().as_ticks(MASTER_CLOCK);
+
+	if (BIT(changed, 2) && !BIT(data, 2))
+		m_hsync_start_cycle = now;
+
 	if (BIT(changed, 1) && BIT(data, 1))
 	{
-		m_frame_start_cycle = machine().time().as_ticks(MASTER_CLOCK);
+		// start of frame (/VBLANK rising edge); resync timings to hblank
 		video_update();
+		m_frame_start_cycle = m_hsync_start_cycle;
+		m_last_cycles = now - m_frame_start_cycle;
 	}
+
 	if (BIT(changed, 3))
 	{
 		video_update();
@@ -181,6 +191,7 @@ void lft_craft_state::machine_start()
 	save_item(NAME(m_gpio_c));
 	save_item(NAME(m_last_cycles));
 	save_item(NAME(m_frame_start_cycle));
+	save_item(NAME(m_hsync_start_cycle));
 
 	save_item(NAME(m_latched_color));
 	save_pointer(NAME(m_pixels), PIXELS_PER_FRAME);
@@ -192,6 +203,7 @@ void lft_craft_state::machine_reset()
 	m_gpio_c = 0;
 
 	m_frame_start_cycle = 0;
+	m_hsync_start_cycle = 0;
 	m_last_cycles = 0;
 
 	m_latched_color = 0;
@@ -212,7 +224,7 @@ void lft_craft_state::craft(machine_config &config)
 
 	PALETTE(config, m_palette, FUNC(lft_craft_state::init_palette), 64);
 	SCREEN(config, m_screen);
-	m_screen->set_raw(MASTER_CLOCK, 635, 47, 527, 525, 36, 516);
+	m_screen->set_raw(MASTER_CLOCK, 635, 127, 607, 525, 36, 516);
 	m_screen->set_screen_update(FUNC(lft_craft_state::screen_update));
 
 	SPEAKER(config, "avr8").front_center();

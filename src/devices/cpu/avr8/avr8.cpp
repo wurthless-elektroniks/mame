@@ -1338,7 +1338,7 @@ const avr8_base_device::interrupt_condition avr8_base_device::s_int_conditions[]
 	{ INTIDX_PCINT2, AVR8_INT_PCINT2,  PCICR,     PCICR_PCIE2_MASK,   PCIFR,    PCIFR_PCIF2_MASK },
 	{ INTIDX_INT0,   AVR8_INT_INT0,    EIMSK,     EIMSK_INT0_MASK,    EIFR,     EIFR_INTF0_MASK  },
 	{ INTIDX_INT1,   AVR8_INT_INT1,    EIMSK,     EIMSK_INT1_MASK,    EIFR,     EIFR_INTF1_MASK  },
-	{ 0,             0,                0,         0,                  0,        0, 				 } // end of list
+	{ 0,             0,                0,         0,                  0,        0,               } // end of list
 };
 
 void avr8_base_device::update_interrupt(uint8_t intidx)
@@ -1460,7 +1460,7 @@ void avr8_base_device::fire_interrupts()
 	if (interrupt_firing)
 	{
 		LOGMASKED(LOG_INTERRUPTS, "interrupt %d won the race, firing it.\n", interrupt_winner_idx);
-		
+
 		m_r[SREG] &= ~SREG_MASK_I;
 		push((m_pc >> 1) & 0x00ff);
 		push((m_pc >> 9) & 0x00ff);
@@ -1485,7 +1485,7 @@ inline bool avr8_base_device::interrupt_condition_entry_is_terminator(interrupt_
 void avr8_base_device::populate_interrupt_condition_table()
 {
 	const avr8_base_device::interrupt_condition* int_conds = interrupt_conditions();
-	
+
 	m_int_conditions_table = std::make_unique<avr8_base_device::interrupt_condition[]>(INTIDX_COUNT);
 
 	for (int i = 0; i < INTIDX_COUNT; i++)
@@ -1553,11 +1553,11 @@ bool atmega32u4_device::pcint_group(gpio_t port, uint8_t &pcmsk_reg, int &group)
 const avr8_base_device::interrupt_condition avr8_base_device::s_mega640_int_conditions[avr8_base_device::INTIDX_COUNT] =
 {
 	// irq id        vector                  irq reg   irq reg mask        flag reg  flag reg mask
-	{ INTIDX_SPI,  	 ATMEGA640_INT_SPI_STC,  SPCR,     SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK },
+	{ INTIDX_SPI,    ATMEGA640_INT_SPI_STC,  SPCR,     SPCR_SPIE_MASK,     SPSR,     SPSR_SPIF_MASK },
 	{ INTIDX_OCF0B,  ATMEGA640_INT_T0COMPB,  TIMSK0,   TIMSK0_OCIE0B_MASK, TIFR0,    TIFR0_OCF0B_MASK },
 	{ INTIDX_OCF0A,  ATMEGA640_INT_T0COMPA,  TIMSK0,   TIMSK0_OCIE0A_MASK, TIFR0,    TIFR0_OCF0A_MASK },
-	{ INTIDX_TOV0,   ATMEGA640_INT_T0OVF,  	 TIMSK0,   TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK },
-	{ INTIDX_ICF1, 	 ATMEGA640_INT_T1CAPT,   TIMSK1,   TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK },
+	{ INTIDX_TOV0,   ATMEGA640_INT_T0OVF,    TIMSK0,   TIMSK0_TOIE0_MASK,  TIFR0,    TIFR0_TOV0_MASK },
+	{ INTIDX_ICF1,   ATMEGA640_INT_T1CAPT,   TIMSK1,   TIMSK1_ICIE1_MASK,  TIFR1,    TIFR1_ICF1_MASK },
 	{ INTIDX_OCF1B,  ATMEGA640_INT_T1COMPB,  TIMSK1,   TIMSK1_OCIE1B_MASK, TIFR1,    TIFR1_OCF1B_MASK },
 	{ INTIDX_OCF1A,  ATMEGA640_INT_T1COMPA,  TIMSK1,   TIMSK1_OCIE1A_MASK, TIFR1,    TIFR1_OCF1A_MASK },
 	{ INTIDX_TOV1,   ATMEGA640_INT_T1OVF,    TIMSK1,   TIMSK1_TOIE1_MASK,  TIFR1,    TIFR1_TOV1_MASK },
@@ -2871,7 +2871,7 @@ template <int NumTimers>
 void avr8_device<NumTimers>::tifr0_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER0, "%s: TIFR0 = %02x\n", machine().describe_context(), data);
-	
+
 	if (data & TIFR0_OCF0A_MASK) clear_interrupt(INTIDX_OCF0A);
 	if (data & TIFR0_OCF0B_MASK) clear_interrupt(INTIDX_OCF0B);
 	if (data & TIFR0_TOV0_MASK) clear_interrupt(INTIDX_TOV0);
@@ -2892,7 +2892,7 @@ template <int NumTimers>
 void avr8_device<NumTimers>::tifr2_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER2, "%s: TIFR2 = %02x\n", machine().describe_context(), data);
-	
+
 	if (m_r[TIFR2] & TIFR2_OCF2A_MASK) clear_interrupt(INTIDX_OCF2A);
 	if (m_r[TIFR2] & TIFR2_OCF2B_MASK) clear_interrupt(INTIDX_OCF2B);
 	if (m_r[TIFR2] & TIFR2_TOV2_MASK) clear_interrupt(INTIDX_TOV2);
@@ -3137,7 +3137,7 @@ void avr8_device<NumTimers>::timsk0_w(uint8_t data)
 {
 	LOGMASKED(LOG_TIMER0, "%s: TIMSK0 = %02x\n", machine().describe_context(), data);
 	m_r[TIMSK0] = data;
-	
+
 	update_interrupt(INTIDX_OCF0A);
 	update_interrupt(INTIDX_OCF0B);
 	update_interrupt(INTIDX_TOV0);
@@ -3869,10 +3869,12 @@ void avr8_device<NumTimers>::execute_run()
 			update_interrupt(INTIDX_INT1);
 		}
 
-		m_icount -= m_opcycles;
-
 		for (int i = 0; i < m_opcycles; i++)
 		{
+			// icount has to be decremented in this loop because timers and peripherals run in sync.
+			// failing to do this throws off timings (e.g., lft_craft hblanking becomes unstable).
+			m_icount --;
+
 			if (m_spi_active && m_spi_prescale > 0)
 			{
 				if (m_spi_prescale_countdown >= 0)
