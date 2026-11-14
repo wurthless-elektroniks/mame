@@ -821,7 +821,7 @@ avr8_base_device::avr8_base_device(const machine_config &mconfig, const char *ta
 	, m_sleeping(false)
 	, m_sei_delay_pending(false)
 {
-	m_22bit_addressing = m_addr_mask >= 0x00200000;
+	m_22bit_addressing = m_addr_mask >= 0x020000;
 }
 
 template <int NumTimers>
