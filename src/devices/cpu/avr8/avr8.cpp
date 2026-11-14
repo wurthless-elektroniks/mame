@@ -14,7 +14,7 @@
       the existing opcodes has been shown to wildly corrupt the video output in Craft, so one can assume that the
       existing timing is 100% correct.
 
-      Unimplemented opcodes: SPM, SPM Z+, BREAK, WDR, EICALL
+      Unimplemented opcodes: SPM, SPM Z+, BREAK, WDR
 
 */
 

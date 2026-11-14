@@ -1215,12 +1215,18 @@ void avr8_base_device::op_elpm(uint16_t op)
 
 void avr8_base_device::op_spm(uint16_t op)
 {
-	op_unimpl(op);
+	// TODO: flash memory space must be implemented in subclasses of avr8_base_device,
+	// rather than in the drivers. until that happens we can't really implement SPM cleanly.
+	// for now, just clear the busy flags to pretend the operation succeeded.
+	logerror("%s: attempt to execute SPM (currently unimplemented). clearing SPMCSR\n");
+	m_r[SPMCSR] = 0;
 }
 
 void avr8_base_device::op_spmzi(uint16_t op)
 {
-	op_unimpl(op);
+	// TODO: same as spm.
+	logerror("%s: attempt to execute SPM Z+ (currently unimplemented). clearing SPMCSR\n");
+	m_r[SPMCSR] = 0;
 }
 
 void avr8_base_device::op_icall(uint16_t op)
