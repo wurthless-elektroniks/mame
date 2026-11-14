@@ -383,6 +383,7 @@ void avr8_base_device::populate_ops()
 						break;
 					case 0x00d0:    // ELPM
 						m_op_funcs[op] = &avr8_base_device::op_elpm;
+						m_op_cycles[op] = 3;
 						break;
 					case 0x00e0:    // SPM
 						m_op_funcs[op] = &avr8_base_device::op_spm;
@@ -1210,7 +1211,7 @@ void avr8_base_device::op_lpm(uint16_t op)
 
 void avr8_base_device::op_elpm(uint16_t op)
 {
-	op_unimpl(op);
+	m_r[0] = m_program->read_byte((m_r[RAMPZ] << 16) | ZREG);
 }
 
 void avr8_base_device::op_spm(uint16_t op)
@@ -1218,15 +1219,16 @@ void avr8_base_device::op_spm(uint16_t op)
 	// TODO: flash memory space must be implemented in subclasses of avr8_base_device,
 	// rather than in the drivers. until that happens we can't really implement SPM cleanly.
 	// for now, just clear the busy flags to pretend the operation succeeded.
-	logerror("%s: attempt to execute SPM (currently unimplemented). clearing SPMCSR\n");
-	m_r[SPMCSR] = 0;
+	logerror("%s: attempt to execute SPM (currently unimplemented). clearing SPMCSR\n",
+			machine().describe_context());
+	m_r[SPMCSR] &= ~(0b01111111);
 }
 
 void avr8_base_device::op_spmzi(uint16_t op)
 {
-	// TODO: same as spm.
-	logerror("%s: attempt to execute SPM Z+ (currently unimplemented). clearing SPMCSR\n");
-	m_r[SPMCSR] = 0;
+	// spm z+ is not implemented on any of the classic or legacy megaAVRs
+	// so an "unimplemented opcode" panic here will suffice
+	op_unimpl(op);
 }
 
 void avr8_base_device::op_icall(uint16_t op)

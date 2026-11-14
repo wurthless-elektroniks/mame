@@ -14,7 +14,9 @@
       the existing opcodes has been shown to wildly corrupt the video output in Craft, so one can assume that the
       existing timing is 100% correct.
 
-      Unimplemented opcodes: SPM, SPM Z+, BREAK, WDR
+      Unimplemented opcodes: SPM Z+, BREAK, WDR	  
+	  SPM behavior currently just clears the busy flags; full SPM behavior can only be implemented
+	  when flash memory becomes the AVR8 devices' responsibility, rather than the drivers'.
 
 */
 
@@ -54,11 +56,12 @@
 #define LOG_TWI             (1U << 26)
 #define LOG_UART            (1U << 27)
 #define LOG_INTERRUPTS      (1U << 28)
+#define LOG_SPM             (1U << 29)
 #define LOG_TIMERS          (LOG_TIMER0 | LOG_TIMER1 | LOG_TIMER2 | LOG_TIMER3 | LOG_TIMER4 | LOG_TIMER5)
 #define LOG_TIMER_TICKS     (LOG_TIMER0_TICK | LOG_TIMER1_TICK | LOG_TIMER2_TICK | LOG_TIMER3_TICK | LOG_TIMER4_TICK | LOG_TIMER5_TICK)
 #define LOG_ALL             (LOG_UNKNOWN | LOG_BOOT | LOG_TIMERS | LOG_EEPROM | LOG_GPIO | LOG_WDOG | LOG_CLOCK | LOG_POWER \
 							 | LOG_OSC | LOG_PINCHG | LOG_EXTMEM | LOG_ADC | LOG_DIGINPUT | LOG_ASYNC | LOG_TWI | LOG_UART \
-							 | LOG_INTERRUPTS)
+							 | LOG_INTERRUPTS | LOG_SPM
 
 #define VERBOSE             (0)
 //#define LOG_OUTPUT_FUNC     osd_printf_info

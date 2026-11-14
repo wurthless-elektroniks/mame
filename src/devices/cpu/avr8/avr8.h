@@ -777,7 +777,7 @@ protected:
 
 	// internal CPU state
 	uint32_t m_addr_mask; // highest byte-addressable address
-	bool m_22bit_addressing; // set if m_addr_mask >= 0x00200000
+	bool m_22bit_addressing; // set if m_addr_mask >= 0x020000
 	bool m_sleeping;
 	bool m_sei_delay_pending;
 
