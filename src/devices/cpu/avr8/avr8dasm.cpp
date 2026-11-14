@@ -516,17 +516,15 @@ offs_t avr8_disassembler::disassemble(std::ostream &stream, offs_t pc, const dat
 				break;
 			case 0x000c:
 			case 0x000d:
-				op <<= 16;
-				op |= opcodes.r16(pc);
-				pc += 2;
-				util::stream_format(stream, "JMP     0x%06x", KCONST22(op) << 1);
+				addr = KCONST22(op) << 16;
+				addr |= opcodes.r16(pc);
+				util::stream_format(stream, "JMP     0x%06x", addr << 1);
 				break;
 			case 0x000e:
 			case 0x000f:
-				op <<= 16;
-				op |= opcodes.r16(pc);
-				pc += 2;
-				util::stream_format(stream, "CALL    0x%06x", KCONST22(op) << 1);
+				addr = KCONST22(op) << 16;
+				addr |= opcodes.r16(pc);
+				util::stream_format(stream, "CALL    0x%06x", addr << 1);
 				flags = STEP_OVER;
 				break;
 			}
@@ -566,10 +564,10 @@ offs_t avr8_disassembler::disassemble(std::ostream &stream, offs_t pc, const dat
 			util::stream_format(stream, "IN      R%d, %s", RD5(op), register_names[ACONST6(op)]);
 		break;
 	case 0xc000:
-		util::stream_format(stream, "RJMP    %08x", (((op & 0x0800) ? pc + ((op & 0x0fff) | 0xfffff000) : pc + 2 + (op & 0x0fff)) << 0));
+		util::stream_format(stream, "RJMP    0x%06x", pc + (util::sext(op & 0x0fff, 12) << 1));
 		break;
 	case 0xd000:
-		util::stream_format(stream, "RCALL   %08x", (((op & 0x0800) ? ((op & 0x0fff) | 0xfffff000) : (op & 0x0fff)) << 1));
+		util::stream_format(stream, "RCALL   0x%06x", pc + (util::sext(op & 0x0fff, 12) << 1));
 		flags = STEP_OVER;
 		break;
 	case 0xe000:
@@ -579,34 +577,37 @@ offs_t avr8_disassembler::disassemble(std::ostream &stream, offs_t pc, const dat
 		switch(op & 0x0c00)
 		{
 		case 0x0000:
-			switch(op & 0x0007)
 			{
-			case 0x0000:
-				util::stream_format(stream, "BRLO    %08x", (((op & 0x0200) ? (KCONST7(op) | 0xff80) : KCONST7(op)) << 1));
-				break;
-			case 0x0001:
-				util::stream_format(stream, "BREQ    %08x", (((op & 0x0200) ? (KCONST7(op) | 0xff80) : KCONST7(op)) << 1));
-				break;
-			case 0x0002:
-				util::stream_format(stream, "BRMI    %08x", (((op & 0x0200) ? (KCONST7(op) | 0xff80) : KCONST7(op)) << 1));
-				break;
-			case 0x0003:
-				util::stream_format(stream, "BRVS    %08x", (((op & 0x0200) ? (KCONST7(op) | 0xff80) : KCONST7(op)) << 1));
-				break;
-			case 0x0004:
-				util::stream_format(stream, "BRLT    %08x", (((op & 0x0200) ? (KCONST7(op) | 0xff80) : KCONST7(op)) << 1));
-				break;
-			case 0x0005:
-				util::stream_format(stream, "BRHS    %08x", (((op & 0x0200) ? (KCONST7(op) | 0xff80) : KCONST7(op)) << 1));
-				break;
-			case 0x0006:
-				util::stream_format(stream, "BRTS    %08x", (((op & 0x0200) ? (KCONST7(op) | 0xff80) : KCONST7(op)) << 1));
-				break;
-			case 0x0007:
-				util::stream_format(stream, "BRIE    %08x", (((op & 0x0200) ? (KCONST7(op) | 0xff80) : KCONST7(op)) << 1));
-				break;
+				uint32_t target = pc + (util::sext(KCONST7(op), 7) << 1);
+				switch(op & 0x0007)
+				{
+				case 0x0000:
+					util::stream_format(stream, "BRLO    %08x", target);
+					break;
+				case 0x0001:
+					util::stream_format(stream, "BREQ    %08x", target);
+					break;
+				case 0x0002:
+					util::stream_format(stream, "BRMI    %08x", target);
+					break;
+				case 0x0003:
+					util::stream_format(stream, "BRVS    %08x", target);
+					break;
+				case 0x0004:
+					util::stream_format(stream, "BRLT    %08x", target);
+					break;
+				case 0x0005:
+					util::stream_format(stream, "BRHS    %08x", target);
+					break;
+				case 0x0006:
+					util::stream_format(stream, "BRTS    %08x", target);
+					break;
+				case 0x0007:
+					util::stream_format(stream, "BRIE    %08x", target);
+					break;
+				}
+				flags = STEP_COND;
 			}
-			flags = STEP_COND;
 			break;
 		case 0x0400:
 			switch(op & 0x0007)
