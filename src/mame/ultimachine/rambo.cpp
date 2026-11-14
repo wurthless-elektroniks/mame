@@ -156,6 +156,10 @@ ROM_START( metamaq2 )
 	// Marked BAD_DUMP because it's not from real hardware; a real dump should replace this.
 	ROM_LOAD( "stk500boot_v2_mega2560.bin", 0x3e000, 0x1d1e, BAD_DUMP CRC(14a27e35) SHA1(01d7e1e143286f23f7bc9c1d7eec1acf69fa0c45) )
 
+	// HACK: There's a SPM opcode that will stop the whole show until the avr8 core supports it.
+	// The code will work without SPM, so skip it for now.
+	ROM_FILL( 0x3fc4c, 2, 0x00 )
+
 	/* on-die 4kbyte eeprom */
 	ROM_REGION( 0x1000, "eeprom", ROMREGION_ERASEFF )
 ROM_END

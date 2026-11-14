@@ -155,7 +155,7 @@ enum
 #define KCONST6(op)     ((((op) >> 2) & 0x0030) | ((op) & 0x000f))
 #define KCONST7(op)     (((op) >> 3) & 0x007f)
 #define KCONST8(op)     ((((op) >> 4) & 0x00f0) | ((op) & 0x000f))
-#define KCONST22(op)    (((((uint32_t)(op) >> 3) & 0x003e) | ((uint32_t)(op) & 0x0001)) << 16)
+#define KCONST22(op)    (((((uint32_t)(op) >> 3) & 0x003e) | ((uint32_t)(op) & 0x0001)))
 #define QCONST6(op)     ((((op) >> 8) & 0x0020) | (((op) >> 7) & 0x0018) | ((op) & 0x0007))
 #define ACONST5(op)     (((op) >> 3) & 0x001f)
 #define ACONST6(op)     ((((op) >> 5) & 0x0030) | ((op) & 0x000f))
@@ -821,6 +821,7 @@ avr8_base_device::avr8_base_device(const machine_config &mconfig, const char *ta
 	, m_sleeping(false)
 	, m_sei_delay_pending(false)
 {
+	m_22bit_addressing = m_addr_mask >= 0x00200000;
 }
 
 template <int NumTimers>
@@ -1315,6 +1316,26 @@ inline uint8_t avr8_base_device::pop()
 	return m_data->read_byte(sp);
 }
 
+inline void avr8_base_device::push_pc(uint32_t val)
+{
+	for (int i = 0; i < (m_22bit_addressing ? 3 : 2); i++)
+	{
+		push(val & 0xff);
+		val >>= 8;
+	}
+}
+
+inline uint32_t avr8_base_device::pop_pc()
+{
+	uint32_t val = 0;
+	for (int i = 0; i < (m_22bit_addressing ? 3 : 2); i++)
+	{
+		val <<= 8;
+		val |= pop();
+	}
+	return val;
+}
+
 //**************************************************************************
 //  IRQ HANDLING
 //**************************************************************************
@@ -1444,9 +1465,7 @@ void avr8_base_device::fire_interrupts()
 			LOGMASKED(LOG_INTERRUPTS, "firing interrupt vector %d => intidx %d\n", vector, intidx);
 
 			m_r[SREG] &= ~SREG_MASK_I;
-			push((m_pc >> 1) & 0x00ff);
-			push((m_pc >> 9) & 0x00ff);
-			// TODO: 24-bit address pushes for 2560 and friends that use bigger flash space
+			push_pc(m_pc >> 1);
 
 			m_pc = vector * (2 * vector_size_in_words());
 

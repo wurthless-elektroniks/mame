@@ -776,7 +776,8 @@ protected:
 	uint32_t m_pc;
 
 	// internal CPU state
-	uint32_t m_addr_mask;
+	uint32_t m_addr_mask; // highest byte-addressable address
+	bool m_22bit_addressing; // set if m_addr_mask >= 0x00200000
 	bool m_sleeping;
 	bool m_sei_delay_pending;
 
@@ -794,6 +795,9 @@ protected:
 	// memory access
 	inline void push(uint8_t val);
 	inline uint8_t pop();
+	inline void push_pc(uint32_t val);
+	inline uint32_t pop_pc();
+
 	inline bool is_long_opcode(uint16_t op);
 
 	// utility
