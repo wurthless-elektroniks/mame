@@ -166,11 +166,13 @@
 #include "video/rgbutil.h"
 
 #include "corefloat.h"
+#include "emuopts.h"
 #include "multibyte.h"
 
 #include <algorithm>
 #include <cstring>
 #include <cmath>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -188,6 +190,15 @@
 
 #define VERBOSE (0)
 #include "logmacro.h"
+
+// The pixel pipeline is the reference PUML blocks are checked against byte for
+// byte, so the compiler mustn't fuse multiplies and adds here (GCC and clang
+// both do by default on arm64); PUML never does.
+#if defined(__clang__)
+#pragma clang fp contract(off)
+#elif defined(__GNUC__)
+#pragma GCC optimize("fp-contract=off")
+#endif
 
 #define LOGREG(...)     LOGMASKED(LOG_REG, __VA_ARGS__)
 #define LOGCRTC(...)    LOGMASKED(LOG_CRTC, __VA_ARGS__)
@@ -1008,6 +1019,20 @@ void ati_rage128_device::device_start()
 
 	m_vline_timer = timer_alloc(FUNC(ati_rage128_device::vline_tick), this);
 
+	// pixel pipeline code generation; the -drc_* options choose and log the backend
+	{
+		puml::config cfg;
+		cfg.force_c = machine().options().drc_use_c();
+		cfg.log_ir = machine().options().drc_log_uml();
+		cfg.log_native = machine().options().drc_log_native();
+		cfg.tag = std::string(shortname()) + tag();
+		std::replace(cfg.tag.begin(), cfg.tag.end(), ':', '_');
+		cfg.log = [this] (const std::string &text) { logerror("%s", text); };
+		m_puml = std::make_unique<puml::jit>(cfg);
+		m_puml_refused.clear();
+		m_puml_mismatches = 0;
+	}
+
 	build_edid();
 
 	save_item(NAME(m_regs));
@@ -1093,6 +1118,13 @@ void ati_rage128_device::device_pre_save()
 void ati_rage128_device::device_stop()
 {
 	wait_for_render();
+	if (m_puml)
+	{
+		puml_flush_log();
+		if (m_puml_mismatches)
+			logerror("PUML verify: %u mismatching pixels\n", m_puml_mismatches.load());
+		m_puml->log_statistics();
+	}
 	osd_work_queue_free(m_render_queue);
 	m_render_queue = nullptr;
 	pci_card_device::device_stop();
@@ -5009,7 +5041,7 @@ void ati_rage128_device::queue_prim(u8 kind, const vertex3d &v0, const vertex3d 
 		wait_for_render();
 		switch (kind)
 		{
-		case PRIM_TRIANGLE: draw_triangle(m_rs, v0, v1, v2, 0, 1); break;
+		case PRIM_TRIANGLE: draw_triangle(m_rs, v0, v1, v2, 0, 1, puml_block(m_rs)); break;
 		case PRIM_LINE: draw_line3d(m_rs, v0, v1, 0, 1); break;
 		default: draw_point(m_rs, v0, 0, 1); break;
 		}
@@ -5026,7 +5058,10 @@ void ati_rage128_device::queue_prim(u8 kind, const vertex3d &v0, const vertex3d 
 			if (m_pending->fill_writes.overlaps(textures))
 				kick_render();
 		}
+		// (compiling may flush the cache, which first waits for everything queued)
+		const puml::compiled *const block = puml_block(m_rs);
 		m_pending->states.push_back(m_rs);
+		m_pending->blocks.push_back(block);
 		note_vram_use(*m_pending, m_rs);
 	}
 	render_batch &batch = *m_pending;
@@ -5262,6 +5297,7 @@ void ati_rage128_device::queue_fill(const fill_job &f)
 // and how long emulation was held up waiting for it
 void ati_rage128_device::perf_tick()
 {
+	puml_flush_log();
 	const u32 second = machine().time().seconds();
 	if (second == m_perf_second)
 		return;
@@ -5274,6 +5310,18 @@ void ati_rage128_device::perf_tick()
 	}
 	m_perf_prims = m_perf_batches = m_perf_waits = m_perf_sync = 0;
 	m_perf_wait_ticks = 0;
+}
+
+// PUML_VERIFY findings from the render threads, logged on the emulation thread
+void ati_rage128_device::puml_flush_log()
+{
+	std::vector<std::string> lines;
+	{
+		std::lock_guard<std::mutex> lock(m_probe_lock);
+		lines.swap(m_puml_verify_log);
+	}
+	for (const std::string &l : lines)
+		logerror("%s\n", l);
 }
 
 void *ati_rage128_device::render_band_callback(void *param, int threadid)
@@ -5326,7 +5374,7 @@ void ati_rage128_device::render_batch_band(const render_batch &batch, int band, 
 	{
 		switch (p.kind)
 		{
-		case PRIM_TRIANGLE: draw_triangle(batch.states[p.state], p.v[0], p.v[1], p.v[2], band, bands); break;
+		case PRIM_TRIANGLE: draw_triangle(batch.states[p.state], p.v[0], p.v[1], p.v[2], band, bands, batch.blocks[p.state]); break;
 		case PRIM_LINE: draw_line3d(batch.states[p.state], p.v[0], p.v[1], band, bands); break;
 		case PRIM_FILL: do_fill(batch.fills[p.state], band, bands); break;
 		default: draw_point(batch.states[p.state], p.v[0], band, bands); break;
@@ -6090,8 +6138,1124 @@ void ati_rage128_device::shade_pixel(const raster_state &rs, int x, int y, const
 	}
 }
 
+/***************************************************************************
+    PUML PIXEL PIPELINE
+
+    Triangles are shaded by PUML blocks, one per combination of the draw
+    state's modes (see puml_key), compiled on the emulation thread when a
+    state is queued and run by the render threads over each covered run of
+    a row.  The block does what shade_pixel does, in the same order and
+    with the same arithmetic, so the result is identical byte for byte;
+    the texture sampler is called through a helper.  Lines, points, the
+    probe build and states the generator refuses stay on the C++ path.
+
+    Regions: VRAM (masked by m_vram_mask), STATE (the raster_state, constant
+    offsets only), TRI (the triangle's planes) and STIPPLE (the stipple rows).
+***************************************************************************/
+
+namespace {
+
+// Debugging switches, also settable from the build (-DRAGE128_PUML=0 and so on):
+// PUML_ENABLE off draws everything with the C++ path; PUML_VERIFY runs every
+// pixel through both, keeps the C++ result and logs the first mismatches.
+#ifndef RAGE128_PUML
+#define RAGE128_PUML 1
+#endif
+#ifndef RAGE128_PUML_VERIFY
+#define RAGE128_PUML_VERIFY 0
+#endif
+constexpr bool PUML_ENABLE = RAGE128_PUML;
+constexpr bool PUML_VERIFY = RAGE128_PUML_VERIFY;
+constexpr u32 PUML_VERIFY_LOG_LIMIT = 32;
+
+enum : int { RGN_VRAM = 0, RGN_STATE, RGN_TRI, RGN_STIPPLE };
+
+// plane order, as in draw_triangle
+enum : int { PL_Z, PL_R, PL_G, PL_B, PL_A, PL_SR, PL_SG, PL_SB, PL_SF, PL_Q, PL_S0, PL_T0, PL_S1, PL_T1, PL_COUNT };
+
+// CALL parameter for the texture helper: register numbers ride along
+constexpr u64 tex_param(int unit, bool lod, bool key, int sreg, int treg, int rreg, int out, int nearest)
+{
+	return u64(unit) | (u64(lod) << 1) | (u64(key) << 2) | (u64(sreg) << 8) | (u64(treg) << 13) | (u64(rreg) << 18) | (u64(out) << 23) | (u64(nearest) << 28);
+}
+
+} // anonymous namespace
+
+
+// The modes the generated code depends on.  Everything else (bases, pitches,
+// colours, references, masks, the palette, texture addresses) is read from
+// the state at run time, so states that differ only in data share a block.
+std::string ati_rage128_device::puml_key(const raster_state &rs) const
+{
+	std::string key;
+	auto put = [&key] (u32 v) { key.append(reinterpret_cast<const char *>(&v), sizeof(v)); };
+	put(u32(rs.textured) | (u32(rs.perspective) << 1) | (u32(rs.stipple) << 2) | (u32(rs.z_test) << 3) | (u32(rs.z_write) << 4)
+			| (u32(rs.stencil) << 5) | (u32(rs.z_tiled && tile_pitch_ok(rs.z_pitch)) << 6) | (u32(rs.specular) << 7) | (u32(rs.fog) << 8)
+			| (u32(rs.alpha_test) << 9) | (u32(rs.chroma_key) << 10) | (u32(rs.alpha_mask) << 11) | (u32(rs.blend) << 12)
+			| (u32(rs.blend_subtract) << 13) | (u32(rs.dst_tiled && tile_pitch_ok(rs.dst_pitch)) << 14) | (u32(rs.write_mask != ~0U) << 15));
+	put(u32(rs.aux_cntl & 0x3f) | (u32(rs.z_func & 7) << 8) | (u32(rs.z_width & 3) << 11) | (u32(rs.sten_func & 7) << 13)
+			| (u32(rs.sten_fail_op & 7) << 16) | (u32(rs.sten_zpass_op & 7) << 19) | (u32(rs.sten_zfail_op & 7) << 22) | (u32(rs.alpha_func & 7) << 25)
+			| (u32(rs.clr_cmp_fn & 3) << 28));
+	put(u32(rs.dst_type & 15) | (u32(rs.dst_bpp & 7) << 4) | (u32(rs.blend_src & 15) << 8) | (u32(rs.blend_dst & 15) << 12));
+	if (rs.textured)
+	{
+		for (const texunit &tu : rs.tex)
+		{
+			put(u32(tu.enabled) | (u32(tu.sec_st) << 1) | (u32(tu.need_lod) << 2));
+			put(tu.combine);
+		}
+	}
+	return key;
+}
+
+// texture helper: param from tex_param; reads s, t and rho^2, writes the texel and the nearest texel
+void ati_rage128_device::puml_texture(const puml::ctx &c, puml::frame &f, u64 param)
+{
+	ati_rage128_device &dev = *reinterpret_cast<ati_rage128_device *>(c.user);
+	const raster_state &rs = *reinterpret_cast<const raster_state *>(c.base[RGN_STATE]);
+	float lod = 0.0f;
+	if (BIT(param, 1))
+	{
+		const float rho2 = f.fs(BIT(param, 18, 5));
+		lod = ((rho2 > 0.0f) && std::isfinite(rho2)) ? (0.5f * std::log2(rho2)) : 0.0f;
+	}
+	u32 nearest = 0;
+	const u32 texel = dev.sample_texture(rs.tex[BIT(param, 0)], rs.palette, f.fs(BIT(param, 8, 5)), f.fs(BIT(param, 13, 5)), lod, BIT(param, 2) ? &nearest : nullptr);
+	f.i[BIT(param, 23, 5)] = texel;
+	f.i[BIT(param, 28, 5)] = nearest;
+}
+
+// Writes the block for a state.  Only fields that puml_key covers may steer
+// the generator; anything else must be loaded from the STATE region.
+bool ati_rage128_device::puml_generate(const raster_state &rs, puml::block &b) const
+{
+	using puml::opnd;
+	using puml::op;
+	puml::builder g(b);
+	using regmark = puml::builder::regmark;
+
+	g.region(RGN_VRAM, "VRAM", m_vram_mask + 1, true);
+	g.region(RGN_STATE, "STATE", sizeof(raster_state), false);
+	g.region(RGN_TRI, "TRI", sizeof(puml_tri), false);
+	g.region(RGN_STIPPLE, "STIPPLE", sizeof(rs.stipple_rows), true);
+#define PUML_SYM(f) g.symbol(RGN_STATE, offsetof(raster_state, f), sizeof(rs.f), #f)
+	PUML_SYM(tex_amask); PUML_SYM(dst_base); PUML_SYM(dst_pitch); PUML_SYM(write_mask); PUML_SYM(aux); PUML_SYM(stipple_x);
+	PUML_SYM(stipple_y); PUML_SYM(z_base); PUML_SYM(z_pitch); PUML_SYM(sten_ref); PUML_SYM(sten_mask); PUML_SYM(sten_wmask);
+	PUML_SYM(const_r); PUML_SYM(const_g); PUML_SYM(const_b); PUML_SYM(const_a); PUML_SYM(fog_r); PUML_SYM(fog_g); PUML_SYM(fog_b);
+	PUML_SYM(alpha_ref); PUML_SYM(clr_cmp_clr); PUML_SYM(clr_cmp_msk); PUML_SYM(chroma_clr); PUML_SYM(chroma_msk);
+#undef PUML_SYM
+	g.symbol(RGN_TRI, offsetof(puml_tri, row), sizeof(puml_tri::row), "row");
+	g.symbol(RGN_TRI, offsetof(puml_tri, dx), sizeof(puml_tri::dx), "dx");
+	g.symbol(RGN_TRI, offsetof(puml_tri, dy), sizeof(puml_tri::dy), "dy");
+	g.symbol(RGN_TRI, offsetof(puml_tri, tex_w), sizeof(puml_tri::tex_w), "tex_w");
+	g.symbol(RGN_TRI, offsetof(puml_tri, tex_h), sizeof(puml_tri::tex_h), "tex_h");
+	const int tex_helper = g.add_helper(&ati_rage128_device::puml_texture, "sample_texture");
+
+	// a predicate that may be known at generation time
+	struct pred { int reg; bool k; };
+	const pred always{ -1, true }, never{ -1, false };
+
+	auto alloc_f = [&g] { return g.alloc_f(); };
+	auto alloc_i = [&g] { return g.alloc_i(); };
+	auto fconst = [&g] (float v) { const int r = g.alloc_f(); g.fldi(r, v); return r; };
+	auto fstate = [&g] (size_t off) { const int r = g.alloc_f(); g.fld(r, RGN_STATE, -1, u32(off)); return r; };
+	auto istate = [&g] (size_t off, puml::msize sz) { const int r = g.alloc_i(); g.ld(r, RGN_STATE, -1, u32(off), sz); return r; };
+	auto ftri = [&g] (size_t off) { const int r = g.alloc_f(); g.fld(r, RGN_TRI, -1, u32(off)); return r; };
+	int fzero = -1, fone = -1;      // loaded in the span prologue
+	auto clamp01 = [&g, &fzero, &fone] (int dst, int src) { g.clamp01(dst, src, fzero, fone); };
+	auto one_minus = [&g, &fone] (int dst, int src) { g.fop(op::FSUB, dst, fone, src); };
+	auto kill_if = [&g] (pred p, int any_i) {
+		if (p.reg >= 0)
+			g.kill(p.reg);
+		else if (p.k)
+		{
+			const regmark m = g.mark();
+			const int t = g.alloc_p();
+			g.cmp(puml::C_EQ, t, any_i, opnd::i(any_i));
+			g.kill(t);
+			g.release(m);
+		}
+	};
+	auto kill_unless = [&g, &kill_if] (pred p, int any_i) {
+		if (p.reg < 0)
+			kill_if(pred{ -1, !p.k }, any_i);
+		else
+		{
+			const regmark m = g.mark();
+			const int t = g.alloc_p();
+			g.pnot(t, p.reg);
+			g.kill(t);
+			g.release(m);
+		}
+	};
+	// depth_test(fn, a, b) with unsigned compares
+	auto dtest = [&g] (int fn, int a, opnd bv) -> pred {
+		static const puml::cond conds[8] = { puml::C_EQ, puml::C_LTU, puml::C_LEU, puml::C_EQ, puml::C_GEU, puml::C_GTU, puml::C_NE, puml::C_EQ };
+		fn &= 7;
+		if (fn == 0)
+			return pred{ -1, false };
+		if (fn == 7)
+			return pred{ -1, true };
+		const int p = g.alloc_p();
+		g.cmp(conds[fn], p, a, bv);
+		return pred{ p, false };
+	};
+	// byte offset of byte xb of line y in a surface, as surface_offset
+	auto surface = [&g] (int dst, int xb, int y, int pitch, bool tiled) {
+		if (tiled)
+			g.tile_address(dst, xb, y, pitch, 6, 4);
+		else
+			g.linear_address(dst, xb, y, pitch);
+	};
+
+	g.comment(util::string_format("Rage 128: %s%s%s%s%s dst type %d", rs.textured ? "textured " : "", rs.z_test ? "Z " : "",
+			rs.stencil ? "stencil " : "", rs.blend ? "blend " : "", rs.fog ? "fog " : "", rs.dst_type));
+
+	// span prologue: the row and anything that depends only on it
+	const int iy = alloc_i();
+	g.input(iy, puml::IN_Y);
+	fzero = fconst(0.0f);
+	fone = fconst(1.0f);
+	int stip_row = -1;
+	if (rs.stipple)
+	{
+		stip_row = alloc_i();
+		const regmark m = g.mark();
+		const int t = istate(offsetof(raster_state, stipple_y), puml::SZ_U32);
+		g.alu(op::ADD, t, iy, opnd::i(t));
+		g.alui(op::AND, t, t, 31);
+		g.alui(op::SHL, t, t, 2);
+		g.ld(stip_row, RGN_STIPPLE, t, 0, puml::SZ_U32);
+		g.release(m);
+	}
+	g.pixel();
+
+	const int ix = alloc_i();
+	g.input(ix, puml::IN_X);
+	const int px = alloc_f();
+	{
+		const regmark m = g.mark();
+		g.itof(px, ix, puml::CV_S32);
+		const int h = fconst(0.5f);
+		g.fop(op::FADD, px, px, h);
+		g.release(m);
+	}
+	// a plane's value at this pixel: row + dx * px
+	auto plane = [&] (int dst, int i) {
+		const regmark m = g.mark();
+		g.fld(dst, RGN_TRI, -1, u32(offsetof(puml_tri, row) + 4 * i));
+		const int d = ftri(offsetof(puml_tri, dx) + 4 * i);
+		g.fop(op::FMUL, d, d, px);
+		g.fop(op::FADD, dst, dst, d);
+		g.release(m);
+	};
+
+	// stipple
+	if (rs.stipple)
+	{
+		g.comment("stipple");
+		const regmark m = g.mark();
+		const int t = istate(offsetof(raster_state, stipple_x), puml::SZ_U32);
+		g.alu(op::ADD, t, ix, opnd::i(t));
+		g.alui(op::AND, t, t, 31);
+		g.alui(op::XOR, t, t, 7);       // (sx & ~7) | (~sx & 7)
+		const int bit = alloc_i();
+		g.alu(op::SHR, bit, stip_row, opnd::i(t));
+		g.alui(op::AND, bit, bit, 1);
+		const int p = g.alloc_p();
+		g.cmp(puml::C_EQ, p, bit, opnd::imm(0));
+		g.kill(p);
+		g.release(m);
+	}
+
+	// auxiliary scissors
+	if (rs.aux_cntl & 0x15)
+	{
+		g.comment("aux scissors");
+		const regmark m = g.mark();
+		const int or_hit = g.alloc_p();
+		bool any_or = false;
+		for (int i = 0; i < 3; i++)
+		{
+			if (!BIT(rs.aux_cntl, i * 2))
+				continue;
+			const regmark m2 = g.mark();
+			const int inside = g.alloc_p(), t = g.alloc_p();
+			const size_t base = offsetof(raster_state, aux) + 16 * i;
+			const int l = istate(base + 0, puml::SZ_U32), r = istate(base + 4, puml::SZ_U32);
+			const int tp = istate(base + 8, puml::SZ_U32), bt = istate(base + 12, puml::SZ_U32);
+			g.cmp(puml::C_GE, inside, ix, opnd::i(l));
+			g.cmp(puml::C_LE, t, ix, opnd::i(r));
+			g.pop(op::PAND, inside, inside, t);
+			g.cmp(puml::C_GE, t, iy, opnd::i(tp));
+			g.pop(op::PAND, inside, inside, t);
+			g.cmp(puml::C_LE, t, iy, opnd::i(bt));
+			g.pop(op::PAND, inside, inside, t);
+			if (BIT(rs.aux_cntl, i * 2 + 1))
+				g.kill(inside);
+			else
+			{
+				g.pop(op::POR, or_hit, any_or ? or_hit : inside, inside);
+				any_or = true;
+			}
+			g.release(m2);
+		}
+		if (any_or)
+		{
+			const int t = g.alloc_p();
+			g.pnot(t, or_hit);
+			g.kill(t);
+		}
+		g.release(m);
+	}
+
+	// depth and stencil buffer
+	int zaddr = -1, zval = -1, zword = -1, zstored = -1;
+	pred zpass = always;
+	if (rs.z_test || rs.stencil)
+	{
+		g.comment("depth");
+		zaddr = alloc_i(); zval = alloc_i(); zword = alloc_i(); zstored = alloc_i();
+		const regmark m = g.mark();
+		const int xb = alloc_i();
+		g.alui(op::SHL, xb, ix, (rs.z_bytes == 2) ? 1 : 2);
+		const int pitch = istate(offsetof(raster_state, z_pitch), puml::SZ_U32);
+		surface(zaddr, xb, iy, pitch, rs.z_tiled && tile_pitch_ok(rs.z_pitch));
+		const int zb = istate(offsetof(raster_state, z_base), puml::SZ_U32);
+		g.alu(op::ADD, zaddr, zb, opnd::i(zaddr));
+
+		// zval = u32(double(clamp01(z)) * double(z_max))
+		const int z = alloc_f();
+		plane(z, PL_Z);
+		clamp01(z, z);
+		const int zd = alloc_f(), zm = alloc_f();
+		g.fcvt(zd, z, puml::type::F64);
+		g.fldi64(zm, double(rs.z_max));
+		g.fop(op::FMUL, zd, zd, zm, puml::type::F64);
+		g.ftoi(zval, zd, puml::CV_U32, puml::type::F64);
+
+		const int a = alloc_i();
+		g.alui(op::AND, a, zaddr, (rs.z_bytes == 2) ? ~1U : ~3U);
+		g.ld(zword, RGN_VRAM, a, 0, (rs.z_bytes == 2) ? puml::SZ_U16 : puml::SZ_U32);
+		g.alui(op::SHR, zstored, zword, rs.z_shift);
+		g.alui(op::AND, zstored, zstored, rs.z_max);
+		g.release(m);
+
+		if (rs.z_test)
+			zpass = dtest(rs.z_func, zval, opnd::i(zstored));      // lives to the end
+		if (!rs.stencil)
+			kill_unless(zpass, ix);
+	}
+
+	// colour
+	g.comment("colour");
+	const int cr = alloc_f(), cg = alloc_f(), cb = alloc_f(), ca = alloc_f();
+	const int col[4] = { cr, cg, cb, ca };
+	{
+		const regmark m = g.mark();
+		const int inv = fconst(1.0f / 255.0f);
+		for (int c = 0; c < 4; c++)
+		{
+			plane(col[c], PL_R + c);
+			g.fop(op::FMUL, col[c], col[c], inv);
+		}
+		g.release(m);
+	}
+
+	if (rs.textured)
+	{
+		const bool persp = rs.perspective;
+		const regmark mt = g.mark();
+		for (int unit = 0; unit < 2; unit++)
+		{
+			const texunit &tu = rs.tex[unit];
+			if (!tu.enabled)
+				continue;
+			g.comment(util::string_format("texture unit %d, combine %08x", unit, tu.combine));
+			const regmark mu = g.mark();
+			const int texel = alloc_i(), nearest = alloc_i();
+			const bool key = !unit && (rs.chroma_key || rs.clr_cmp_fn || rs.alpha_mask);
+			const int sp = tu.sec_st ? PL_S1 : PL_S0, tp = tu.sec_st ? PL_T1 : PL_T0;
+			const bool lod = tu.need_lod;
+			{
+				const regmark m = g.mark();
+				const int iq = alloc_f();
+				if (persp)
+				{
+					// iq = (Q != 0) ? 1 / Q : 0
+					const regmark mq = g.mark();
+					const int q = alloc_f(), r = alloc_f();
+					plane(q, PL_Q);
+					const int p = g.alloc_p();
+					g.fcmp(puml::C_NE, p, q, fzero);
+					g.fop(op::FDIV, r, fone, q);
+					g.fsel(iq, p, r, fzero);
+					g.release(mq);
+				}
+				else
+					g.fldi(iq, 1.0f);
+				const int rho = alloc_f();
+				if (lod)
+				{
+					// rho^2 = max(dudx^2 + dvdx^2, dudy^2 + dvdy^2); unit 0 uses the primary coordinates
+					const int lsp = unit ? sp : PL_S0, ltp = unit ? tp : PL_T0;
+					const regmark m2 = g.mark();
+					const int ls = alloc_f(), lt = alloc_f();
+					plane(ls, lsp);
+					g.fop(op::FMUL, ls, ls, iq);
+					plane(lt, ltp);
+					g.fop(op::FMUL, lt, lt, iq);
+					// d = ((d[pl] - coord * d[Q]) * iq) * size, for dx and dy
+					auto deriv = [&] (int dst, size_t table, int pl, int coord, size_t size) {
+						const regmark m3 = g.mark();
+						g.fld(dst, RGN_TRI, -1, u32(table + 4 * pl));
+						const int dq = ftri(table + 4 * PL_Q);
+						g.fop(op::FMUL, dq, coord, dq);
+						g.fop(op::FSUB, dst, dst, dq);
+						g.fop(op::FMUL, dst, dst, iq);
+						g.fld(dq, RGN_TRI, -1, u32(size));
+						g.fop(op::FMUL, dst, dst, dq);
+						g.release(m3);
+					};
+					const size_t w = offsetof(puml_tri, tex_w) + 4 * unit, h = offsetof(puml_tri, tex_h) + 4 * unit;
+					const int sum = alloc_f(), u = alloc_f(), v = alloc_f();
+					deriv(u, offsetof(puml_tri, dx), lsp, ls, w);
+					deriv(v, offsetof(puml_tri, dx), ltp, lt, h);
+					g.fop(op::FMUL, u, u, u);
+					g.fop(op::FMUL, v, v, v);
+					g.fop(op::FADD, sum, u, v);
+					deriv(u, offsetof(puml_tri, dy), lsp, ls, w);
+					deriv(v, offsetof(puml_tri, dy), ltp, lt, h);
+					g.fop(op::FMUL, u, u, u);
+					g.fop(op::FMUL, v, v, v);
+					g.fop(op::FADD, u, u, v);
+					g.fop(op::FMAX, rho, sum, u);     // std::max(dx term, dy term)
+					g.release(m2);
+				}
+				const int s = alloc_f(), t = alloc_f();
+				plane(s, sp);
+				g.fop(op::FMUL, s, s, iq);
+				plane(t, tp);
+				g.fop(op::FMUL, t, t, iq);
+				puml::call_info regs;
+				regs.read_i = 0;
+				regs.read_f = (1U << s) | (1U << t) | (lod ? (1U << rho) : 0);
+				regs.write_i = (1U << texel) | (1U << nearest);
+				regs.write_f = 0;
+				g.call(tex_helper, tex_param(unit, lod, key, s, t, rho, texel, nearest), regs);
+				g.release(m);
+			}
+			const int tr = alloc_f(), tg = alloc_f(), tb = alloc_f(), ta = alloc_f();
+			{
+				if (key)
+				{
+					g.comment("colour keys");
+					const regmark mk = g.mark();
+					const int k = alloc_i(), p = g.alloc_p();
+					if (rs.alpha_mask)
+					{
+						g.alui(op::SHR, k, nearest, 24);
+						g.cmp(puml::C_EQ, p, k, opnd::imm(0));
+						g.kill(p);
+					}
+					if (rs.chroma_key)
+					{
+						const regmark m2 = g.mark();
+						const int msk = istate(offsetof(raster_state, chroma_msk), puml::SZ_U32), clr = istate(offsetof(raster_state, chroma_clr), puml::SZ_U32);
+						g.alu(op::AND, k, nearest, opnd::i(msk));
+						g.cmp(puml::C_EQ, p, k, opnd::i(clr));
+						g.kill(p);
+						g.release(m2);
+					}
+					if (rs.clr_cmp_fn == 1)
+						kill_if(always, ix);
+					else if (rs.clr_cmp_fn)
+					{
+						const regmark m2 = g.mark();
+						const int msk = istate(offsetof(raster_state, clr_cmp_msk), puml::SZ_U32), clr = istate(offsetof(raster_state, clr_cmp_clr), puml::SZ_U32);
+						g.alu(op::AND, k, nearest, opnd::i(msk));
+						g.cmp((rs.clr_cmp_fn == 3) ? puml::C_EQ : puml::C_NE, p, k, opnd::i(clr));
+						g.kill(p);
+						g.release(m2);
+					}
+					g.release(mk);
+				}
+
+				// texel |= tex_amask, then unpack_argb
+				const regmark m2 = g.mark();
+				const int am = istate(offsetof(raster_state, tex_amask), puml::SZ_U32);
+				g.alu(op::OR, texel, texel, opnd::i(am));
+				const int k = alloc_i(), inv = fconst(1.0f / 255.0f);
+				const int dsts[4] = { ta, tr, tg, tb };
+				for (int c = 0; c < 4; c++)
+				{
+					g.alui(op::SHR, k, texel, 24 - 8 * c);
+					if (c)
+						g.alui(op::AND, k, k, 0xff);
+					g.itof(dsts[c], k, puml::CV_U32);
+					g.fop(op::FMUL, dsts[c], dsts[c], inv);
+				}
+				g.release(m2);
+			}
+
+			// combine(tu.combine, !unit, ...), with i = the current colour
+			const u32 cntl = tu.combine;
+			const bool first = !unit;
+			const int comb = cntl & 0xf, cfac = BIT(cntl, 4, 4), ifac = BIT(cntl, 10, 4);
+			const int acomb = BIT(cntl, 14, 4), afac = BIT(cntl, 18, 4), iafac = BIT(cntl, 25, 3);
+			const int texc[3] = { tr, tg, tb };
+			const size_t constoff[4] = { offsetof(raster_state, const_r), offsetof(raster_state, const_g), offsetof(raster_state, const_b), offsetof(raster_state, const_a) };
+
+			const regmark mc = g.mark();
+			int blend_a = ca;
+			if (comb == 9)
+				blend_a = ta;
+			else if (comb == 10)
+				blend_a = fstate(constoff[3]);
+
+			// op(mode, f, x, blend_a, tex_a, c), writing dst last so that it may alias an input
+			auto combine_op = [&] (int dst, int mode, int f, int x, int c) {
+				const regmark m = g.mark();
+				switch (mode)
+				{
+				case 1: g.fmov(dst, f); break;
+				case 3: g.fop(op::FMUL, dst, f, x); break;
+				case 4: case 5:
+				{
+					const int t = alloc_f(), k = fconst((mode == 4) ? 2.0f : 4.0f);
+					g.fop(op::FMUL, t, k, f);
+					g.fop(op::FMUL, t, t, x);
+					clamp01(dst, t);
+					break;
+				}
+				case 6:
+				{
+					const int t = alloc_f();
+					g.fop(op::FADD, t, f, x);
+					clamp01(dst, t);
+					break;
+				}
+				case 7: case 14:
+				{
+					const int t = alloc_f(), k = fconst(0.5f);
+					g.fop(op::FADD, t, f, x);
+					g.fop(op::FSUB, t, t, k);
+					if (mode == 14)
+					{
+						g.fldi(k, 2.0f);
+						g.fop(op::FMUL, t, k, t);
+					}
+					clamp01(dst, t);
+					break;
+				}
+				case 8: case 9: case 10: case 12: case 15:
+				{
+					const int w = (mode == 15) ? c : blend_a;
+					const int t = alloc_f(), u = alloc_f();
+					g.fop(op::FMUL, t, f, w);
+					one_minus(u, w);
+					g.fop(op::FMUL, u, x, u);
+					g.fop(op::FADD, dst, t, u);
+					break;
+				}
+				case 11: case 13:
+				{
+					const int t = alloc_f(), u = alloc_f();
+					one_minus(u, ta);
+					if (mode == 11)
+					{
+						g.fop(op::FMUL, u, x, u);
+						g.fop(op::FADD, t, f, u);
+					}
+					else
+					{
+						g.fop(op::FMUL, u, f, u);
+						g.fop(op::FADD, t, u, x);
+					}
+					clamp01(dst, t);
+					break;
+				}
+				default:        // 0, 2
+					g.fmov(dst, x);
+					break;
+				}
+				g.release(m);
+			};
+
+			const bool needs_c = (cfac == 0) || (cfac == 1) || (ifac == 2) || (comb == 15);
+			for (int ch = 0; ch < 3; ch++)
+			{
+				const regmark m = g.mark();
+				const int c = needs_c ? fstate(constoff[ch]) : -1;
+				int f;
+				switch (cfac)
+				{
+				case 0: f = c; break;
+				case 1: f = alloc_f(); one_minus(f, c); break;
+				case 5: f = alloc_f(); one_minus(f, texc[ch]); break;
+				case 6: f = ta; break;
+				case 7: f = alloc_f(); one_minus(f, ta); break;
+				case 8: f = col[ch]; break;
+				default: f = texc[ch]; break;
+				}
+				int x;
+				switch (ifac)
+				{
+				case 2: x = c; break;
+				case 3: x = fstate(constoff[3]); break;
+				case 5: case 9: x = ca; break;
+				default: x = col[ch]; break;
+				}
+				// the result replaces this channel of the colour; alpha is done last
+				if (comb == 0)
+				{
+					if (BIT(cntl, 8))
+					{
+						g.fop(op::FSUB, col[ch], f, x);
+						g.fop(op::FMAX, col[ch], col[ch], fzero);     // std::max(f - x, 0.0f)
+					}
+					else
+						g.fmov(col[ch], texc[ch]);
+				}
+				else
+					combine_op(col[ch], comb, f, x, c);
+				g.release(m);
+			}
+			{
+				const regmark m = g.mark();
+				const int c = fstate(constoff[3]);
+				int fa = ta;
+				if (afac == 7)
+				{
+					fa = alloc_f();
+					one_minus(fa, ta);
+				}
+				const int xa = (iafac == 1) ? c : ca;
+				if (acomb == 0)
+					g.fmov(ca, first ? ta : ca);
+				else
+					combine_op(ca, acomb, fa, xa, c);
+				g.release(m);
+			}
+			g.release(mc);
+			g.release(mu);
+		}
+		g.release(mt);
+	}
+
+	if (rs.specular)
+	{
+		g.comment("specular");
+		const regmark m = g.mark();
+		const int inv = fconst(1.0f / 255.0f), s = alloc_f();
+		for (int c = 0; c < 3; c++)
+		{
+			plane(s, PL_SR + c);
+			g.fop(op::FMUL, s, s, inv);
+			g.fop(op::FADD, s, col[c], s);
+			clamp01(col[c], s);
+		}
+		g.release(m);
+	}
+
+	if (rs.fog)
+	{
+		g.comment("fog");
+		const regmark m = g.mark();
+		const int inv = fconst(1.0f / 255.0f), f = alloc_f(), omf = alloc_f(), t = alloc_f(), u = alloc_f();
+		plane(f, PL_SF);
+		g.fop(op::FMUL, f, f, inv);
+		clamp01(f, f);
+		one_minus(omf, f);
+		const size_t fogoff[3] = { offsetof(raster_state, fog_r), offsetof(raster_state, fog_g), offsetof(raster_state, fog_b) };
+		for (int c = 0; c < 3; c++)
+		{
+			g.fop(op::FMUL, t, col[c], f);
+			g.fld(u, RGN_STATE, -1, u32(fogoff[c]));
+			g.fop(op::FMUL, u, u, omf);
+			g.fop(op::FADD, col[c], t, u);
+		}
+		g.release(m);
+	}
+
+	if (rs.alpha_test)
+	{
+		g.comment("alpha test");
+		const regmark m = g.mark();
+		const int t = alloc_f(), k = fconst(255.0f), h = fconst(0.5f), v = alloc_i();
+		g.fop(op::FMUL, t, ca, k);
+		g.fop(op::FADD, t, t, h);
+		g.ftoi(v, t, puml::CV_U32);
+		const int ref = istate(offsetof(raster_state, alpha_ref), puml::SZ_U32);
+		kill_unless(dtest(rs.alpha_func, v, opnd::i(ref)), ix);
+		g.release(m);
+	}
+
+	g.order();
+
+	if (rs.stencil)
+	{
+		g.comment("stencil");
+		const regmark m = g.mark();
+		const int value = alloc_i();
+		g.alui(op::SHR, value, zword, 24);
+		const int ref = istate(offsetof(raster_state, sten_ref), puml::SZ_U8);
+		const int msk = istate(offsetof(raster_state, sten_mask), puml::SZ_U8);
+		const int a = alloc_i(), bb = alloc_i();
+		g.alu(op::AND, a, ref, opnd::i(msk));
+		g.alu(op::AND, bb, value, opnd::i(msk));
+		const pred spass = dtest(rs.sten_func, a, opnd::i(bb));
+
+		// stencil_op for each of the three operations
+		auto sop = [&] (int dst, int opn) {
+			const regmark m2 = g.mark();
+			switch (opn & 7)
+			{
+			case 1: g.ldi(dst, 0); break;
+			case 2: g.mov(dst, ref); break;
+			case 3: g.alui(op::ADD, dst, value, 1); g.alui(op::MINU, dst, dst, 0xff); break;
+			case 4: g.alui(op::MAXU, dst, value, 1); g.alui(op::SUB, dst, dst, 1); break;
+			case 5: g.alui(op::XOR, dst, value, 0xff); break;
+			default: g.mov(dst, value); break;
+			}
+			g.release(m2);
+		};
+		const int rfail = alloc_i(), rpass = alloc_i(), rzfail = alloc_i(), res = alloc_i();
+		sop(rfail, rs.sten_fail_op);
+		sop(rpass, rs.sten_zpass_op);
+		sop(rzfail, rs.sten_zfail_op);
+		if (zpass.reg >= 0)
+			g.sel(res, zpass.reg, opnd::i(rpass), opnd::i(rzfail));
+		else
+			g.mov(res, zpass.k ? rpass : rzfail);
+		if (spass.reg >= 0)
+			g.sel(res, spass.reg, opnd::i(res), opnd::i(rfail));
+		else if (!spass.k)
+			g.mov(res, rfail);
+
+		// (result & wmask) | (value & ~wmask)
+		const int wm = istate(offsetof(raster_state, sten_wmask), puml::SZ_U8);
+		g.alu(op::AND, res, res, opnd::i(wm));
+		g.alui(op::XOR, wm, wm, 0xff);
+		g.alu(op::AND, a, value, opnd::i(wm));
+		g.alu(op::OR, res, res, opnd::i(a));
+
+		// zwrite = spass && zpass && z_write
+		pred both = never;
+		const int pb = g.alloc_p();
+		if (spass.reg >= 0 && zpass.reg >= 0)
+		{
+			g.pop(op::PAND, pb, spass.reg, zpass.reg);
+			both = pred{ pb, false };
+		}
+		else if (spass.reg >= 0)
+			both = zpass.k ? spass : never;
+		else if (zpass.reg >= 0)
+			both = spass.k ? zpass : never;
+		else
+			both = pred{ -1, spass.k && zpass.k };
+
+		const int low = alloc_i();
+		if (rs.z_write && (both.reg >= 0))
+		{
+			g.alui(op::AND, a, zval, 0xff'ffff);
+			g.sel(low, both.reg, opnd::i(a), opnd::i(zstored));
+		}
+		else if (rs.z_write && both.k)
+			g.alui(op::AND, low, zval, 0xff'ffff);
+		else
+			g.mov(low, zstored);
+		g.alui(op::SHL, res, res, 24);
+		g.alu(op::OR, res, res, opnd::i(low));
+		g.alui(op::AND, a, zaddr, ~3U);
+		g.st(RGN_VRAM, a, 0, res, puml::SZ_U32);
+		kill_unless(both, ix);
+		g.release(m);
+	}
+
+	if (rs.dst_bpp)
+	{
+		g.comment("destination");
+		const int bpp = rs.dst_bpp;
+		const bool partial = rs.write_mask != ~0U;
+		const bool tiled = rs.dst_tiled && tile_pitch_ok(rs.dst_pitch);
+		const regmark m = g.mark();
+
+		// byte addresses: one, or three for 24-bit pixels, which can straddle a tile column
+		int caddr[3] = { -1, -1, -1 };
+		for (int k = 0; k < ((bpp == 3) ? 3 : 1); k++)
+			caddr[k] = alloc_i();
+		{
+			const regmark m2 = g.mark();
+			const int pitch = istate(offsetof(raster_state, dst_pitch), puml::SZ_U32);
+			const int base = istate(offsetof(raster_state, dst_base), puml::SZ_U32);
+			const int xb = alloc_i(), xk = alloc_i();
+			if (bpp == 3)
+				g.alui(op::MUL, xb, ix, 3);
+			else
+				g.alui(op::SHL, xb, ix, (bpp == 4) ? 2 : (bpp == 2) ? 1 : 0);
+			for (int k = 0; k < ((bpp == 3) ? 3 : 1); k++)
+			{
+				if (k)
+					g.alui(op::ADD, xk, xb, k);
+				surface(caddr[k], k ? xk : xb, iy, pitch, tiled);
+				g.alu(op::ADD, caddr[k], base, opnd::i(caddr[k]));
+			}
+			g.release(m2);
+		}
+		auto aligned = [&g, &alloc_i] (int a, int bytes) {
+			const int r = alloc_i();
+			g.alui(op::AND, r, a, (bytes == 2) ? ~1U : ~3U);
+			return r;
+		};
+
+		int old = -1;
+		if (rs.blend || partial)
+		{
+			old = alloc_i();
+			switch (bpp)
+			{
+			case 1: g.ld(old, RGN_VRAM, caddr[0], 0, puml::SZ_U8); break;
+			case 2: g.ld(old, RGN_VRAM, aligned(caddr[0], 2), 0, puml::SZ_U16); break;
+			case 3:
+			{
+				const regmark m2 = g.mark();
+				const int t = alloc_i();
+				g.ld(old, RGN_VRAM, caddr[0], 0, puml::SZ_U8);
+				for (int k = 1; k < 3; k++)
+				{
+					g.ld(t, RGN_VRAM, caddr[k], 0, puml::SZ_U8);
+					g.alui(op::SHL, t, t, 8 * k);
+					g.alu(op::OR, old, old, opnd::i(t));
+				}
+				g.release(m2);
+				break;
+			}
+			default: g.ld(old, RGN_VRAM, aligned(caddr[0], 4), 0, puml::SZ_U32); break;
+			}
+		}
+
+		// output colour, 0..255
+		const int o[4] = { alloc_f(), alloc_f(), alloc_f(), alloc_f() };
+		{
+			const regmark m2 = g.mark();
+			const int k255 = fconst(255.0f);
+			if (rs.blend)
+			{
+				g.comment("blend");
+				// unpack_color: dv = channel (0..255) / 255
+				const int d[4] = { alloc_f(), alloc_f(), alloc_f(), alloc_f() };
+				const int t = alloc_i();
+				auto expand = [&] (int dst, int shift, int bits) {
+					const regmark m3 = g.mark();
+					g.alui(op::SHR, t, old, shift);
+					g.alui(op::AND, t, t, (1U << bits) - 1);
+					const int u = alloc_i();
+					switch (bits)
+					{
+					case 2: g.alui(op::MUL, t, t, 0x55); break;
+					case 3:
+					{
+						const int w = alloc_i();
+						g.alui(op::SHL, u, t, 5);
+						g.alui(op::SHL, w, t, 2);
+						g.alu(op::OR, u, u, opnd::i(w));
+						g.alui(op::SHR, w, t, 1);
+						g.alu(op::OR, t, u, opnd::i(w));
+						break;
+					}
+					case 4: g.alui(op::MUL, t, t, 0x11); break;
+					case 5: g.alui(op::SHL, u, t, 3); g.alui(op::SHR, t, t, 2); g.alu(op::OR, t, u, opnd::i(t)); break;
+					case 6: g.alui(op::SHL, u, t, 2); g.alui(op::SHR, t, t, 4); g.alu(op::OR, t, u, opnd::i(t)); break;
+					default: break;     // 8 bits
+					}
+					g.itof(d[dst], t, puml::CV_U32);
+					g.release(m3);
+				};
+				auto opaque = [&] (int dst) { g.fmov(d[dst], k255); };
+				switch (rs.dst_type & 15)
+				{
+				case 2: case 9: expand(0, 0, 8); g.fmov(d[1], d[0]); g.fmov(d[2], d[0]); opaque(3); break;
+				case 3:
+				{
+					const regmark m3 = g.mark();
+					const int p = g.alloc_p(), zero = fconst(0.0f);
+					g.tst(p, old, opnd::imm(0x8000));
+					g.fsel(d[3], p, k255, zero);
+					g.release(m3);
+					expand(0, 10, 5); expand(1, 5, 5); expand(2, 0, 5);
+					break;
+				}
+				case 4: opaque(3); expand(0, 11, 5); expand(1, 5, 6); expand(2, 0, 5); break;
+				case 5: opaque(3); expand(0, 16, 8); expand(1, 8, 8); expand(2, 0, 8); break;
+				case 7: opaque(3); expand(0, 5, 3); expand(1, 2, 3); expand(2, 0, 2); break;
+				case 15: expand(3, 12, 4); expand(0, 8, 4); expand(1, 4, 4); expand(2, 0, 4); break;
+				default: expand(3, 24, 8); expand(0, 16, 8); expand(1, 8, 8); expand(2, 0, 8); break;
+				}
+				{
+					const int inv = fconst(1.0f / 255.0f);
+					for (int c = 0; c < 4; c++)
+						g.fop(op::FMUL, d[c], d[c], inv);
+				}
+
+				// blend_factors for source and destination, channel by channel
+				auto factor = [&] (int dst, int mode, int ch) {
+					switch (mode)
+					{
+					case 0: g.fldi(dst, 0.0f); break;
+					case 2: g.fmov(dst, col[ch]); break;
+					case 3: one_minus(dst, col[ch]); break;
+					case 4: case 11: g.fmov(dst, ca); break;
+					case 5: case 12: one_minus(dst, ca); break;
+					case 6: g.fmov(dst, d[3]); break;
+					case 7: one_minus(dst, d[3]); break;
+					case 8: g.fmov(dst, d[ch]); break;
+					case 9: one_minus(dst, d[ch]); break;
+					case 10:
+						if (ch == 3)
+							g.fldi(dst, 1.0f);
+						else
+						{
+							const regmark m3 = g.mark();
+							const int t2 = alloc_f();
+							one_minus(t2, d[3]);
+							g.fop(op::FMIN, dst, ca, t2);     // std::min(s[3], 1 - d[3])
+							g.release(m3);
+						}
+						break;
+					default: g.fldi(dst, 1.0f); break;
+					}
+				};
+				const int sf = alloc_f(), df = alloc_f();
+				for (int c = 0; c < 4; c++)
+				{
+					factor(sf, rs.blend_src & 15, c);
+					factor(df, rs.blend_dst & 15, c);
+					g.fop(op::FMUL, sf, col[c], sf);
+					g.fop(op::FMUL, df, d[c], df);
+					g.fop(rs.blend_subtract ? op::FSUB : op::FADD, sf, sf, df);
+					clamp01(sf, sf);
+					g.fop(op::FMUL, o[c], sf, k255);
+				}
+			}
+			else
+			{
+				for (int c = 0; c < 4; c++)
+					g.fop(op::FMUL, o[c], col[c], k255);
+			}
+			g.release(m2);
+		}
+
+		// pack_color: clamp8 the channels it needs, then pack
+		g.comment("pack");
+		const int dtype = rs.dst_type & 15;
+		const bool need_a = (dtype == 3) || (dtype == 6) || (dtype == 15) || ((dtype != 2) && (dtype != 9) && (dtype != 4) && (dtype != 5) && (dtype != 7));
+		int c8[4] = { -1, -1, -1, -1 };
+		{
+			for (int c = 0; c < 4; c++)
+			{
+				if ((c == 3) && !need_a)
+					continue;
+				if ((c > 0) && (c < 3) && ((dtype == 2) || (dtype == 9)))
+					continue;
+				c8[c] = alloc_i();
+			}
+			const regmark m2 = g.mark();
+			const int zero = fconst(0.0f), k255 = fconst(255.0f), h = fconst(0.5f), t = alloc_f();
+			const int p = g.alloc_p();
+			for (int c = 0; c < 4; c++)
+			{
+				if (c8[c] < 0)
+					continue;
+				// u8(std::clamp(v, 0.0f, 255.0f) + 0.5f)
+				g.fcmp(puml::C_GT, p, o[c], k255);
+				g.fsel(t, p, k255, o[c]);
+				g.fcmp(puml::C_LT, p, o[c], zero);
+				g.fsel(t, p, zero, t);
+				g.fop(op::FADD, t, t, h);
+				g.ftoi(c8[c], t, puml::CV_U32);
+				g.alui(op::AND, c8[c], c8[c], 0xff);
+			}
+			g.release(m2);
+		}
+		const int res = alloc_i(), t = alloc_i();
+		auto field = [&] (int c, int shr, int shl, u32 mask = ~0U) {
+			g.alui(op::SHR, t, c8[c], shr);
+			if (mask != ~0U)
+				g.alui(op::AND, t, t, mask);
+			g.alui(op::SHL, t, t, shl);
+			g.alu(op::OR, res, res, opnd::i(t));
+		};
+		g.ldi(res, 0);
+		switch (dtype)
+		{
+		case 2: case 9: g.mov(res, c8[0]); break;
+		case 3:
+		{
+			const int p = g.alloc_p();
+			g.cmp(puml::C_GEU, p, c8[3], opnd::imm(128));
+			g.sel(res, p, opnd::imm(0x8000), opnd::imm(0));
+			field(0, 3, 10); field(1, 3, 5); field(2, 3, 0);
+			break;
+		}
+		case 4: field(0, 3, 11); field(1, 2, 5); field(2, 3, 0); break;
+		case 5: field(0, 0, 16); field(1, 0, 8); field(2, 0, 0); break;
+		case 7:
+			g.alui(op::AND, res, c8[0], 0xe0);
+			field(1, 3, 0, 0x1c);
+			field(2, 6, 0);
+			break;
+		case 15: field(3, 4, 12); field(0, 4, 8); field(1, 4, 4); field(2, 4, 0); break;
+		default: field(3, 0, 24); field(0, 0, 16); field(1, 0, 8); field(2, 0, 0); break;
+		}
+
+		if (partial)
+		{
+			const int wm = istate(offsetof(raster_state, write_mask), puml::SZ_U32);
+			g.alu(op::AND, res, res, opnd::i(wm));
+			g.alui(op::XOR, wm, wm, ~0U);
+			g.alu(op::AND, t, old, opnd::i(wm));
+			g.alu(op::OR, res, res, opnd::i(t));
+		}
+
+		switch (bpp)
+		{
+		case 1: g.st(RGN_VRAM, caddr[0], 0, res, puml::SZ_U8); break;
+		case 2: g.st(RGN_VRAM, aligned(caddr[0], 2), 0, res, puml::SZ_U16); break;
+		case 3:
+			g.st(RGN_VRAM, caddr[0], 0, res, puml::SZ_U8);
+			for (int k = 1; k < 3; k++)
+			{
+				g.alui(op::SHR, t, res, 8 * k);
+				g.st(RGN_VRAM, caddr[k], 0, t, puml::SZ_U8);
+			}
+			break;
+		default: g.st(RGN_VRAM, aligned(caddr[0], 4), 0, res, puml::SZ_U32); break;
+		}
+		g.release(m);
+
+		// depth write without stencil
+		if (!rs.stencil && rs.z_write)
+		{
+			g.comment("depth write");
+			const regmark m2 = g.mark();
+			const int a = alloc_i(), v = alloc_i(), u = alloc_i();
+			if (rs.z_bytes == 2)
+			{
+				g.alui(op::AND, a, zaddr, ~1U);
+				g.st(RGN_VRAM, a, 0, zval, puml::SZ_U16);
+			}
+			else
+			{
+				g.alui(op::AND, a, zaddr, ~3U);
+				if (rs.z_width == 1)
+				{
+					g.alui(op::AND, v, zword, 0xff00'0000);
+					g.alui(op::AND, u, zval, 0xff'ffff);
+				}
+				else
+				{
+					g.alui(op::AND, v, zword, 0xff);
+					g.alui(op::SHL, u, zval, 8);
+				}
+				g.alu(op::OR, v, v, opnd::i(u));
+				g.st(RGN_VRAM, a, 0, v, puml::SZ_U32);
+			}
+			g.release(m2);
+		}
+	}
+
+	if (g.overflow())
+	{
+		const puml::builder::regmark peak = g.peak();
+		m_puml->log(util::string_format("PUML: block %s needs more registers than PUML has (I%d F%d P%d), drawing with C++\n", b.name, peak.i, peak.f, peak.p));
+		return false;
+	}
+	return true;
+}
+
+// The compiled block for a state, compiling it if need be; nullptr draws with
+// the C++ path.  Called on the emulation thread only.
+const puml::compiled *ati_rage128_device::puml_block(const raster_state &rs)
+{
+	if (!PUML_ENABLE || !m_puml || (VERBOSE & LOG_PROBE))
+		return nullptr;
+
+	const std::string key = puml_key(rs);
+	if (const puml::compiled *code = m_puml->find(key))
+		return code;
+	if (m_puml_refused.count(key))
+		return nullptr;
+
+	// a full cache is flushed once nothing that might use it is queued or rendering
+	if (m_puml->full())
+	{
+		wait_for_render();
+		m_puml->flush();
+		m_puml_refused.clear();
+		LOG("PUML: block cache flushed\n");
+	}
+
+	puml::block b;
+	b.name = util::string_format("rage128_%u", u32(m_puml->statistics().compiled + m_puml->statistics().refused));
+	const puml::compiled *code = puml_generate(rs, b) ? m_puml->add(key, std::move(b)) : nullptr;
+	if (!code)
+		m_puml_refused.insert(key);
+	return code;
+}
+
+// Runs one pixel through the block and through the C++ path, keeps the C++
+// result and records any difference in the bytes either may write.
+void ati_rage128_device::puml_verify_pixel(const puml::compiled &code, puml::ctx &pc, puml::frame &pf, const raster_state &rs,
+		int x, int y, const std::function<void ()> &cpp)
+{
+	// what the pixel may write: its colour bytes and the depth/stencil word
+	u32 addr[8];
+	int count = 0;
+	if (rs.dst_bpp)
+	{
+		const u32 xb = u32(x) * rs.dst_bpp;
+		for (int k = 0; k < rs.dst_bpp; k++)
+			addr[count++] = (rs.dst_base + surface_offset(xb + k, u32(y), rs.dst_pitch, rs.dst_tiled)) & m_vram_mask;
+	}
+	if (rs.z_test || rs.stencil)
+	{
+		const u32 z = ((rs.z_base + surface_offset(u32(x) * rs.z_bytes, u32(y), rs.z_pitch, rs.z_tiled)) & m_vram_mask) & ~3U;
+		for (int k = 0; k < 4; k++)
+			addr[count++] = (z + k) & m_vram_mask;
+	}
+	u8 before[8], jit[8], ref[8];
+	for (int n = 0; n < count; n++)
+		before[n] = m_vram[addr[n]];
+
+	pc.x0 = x;
+	pc.x1 = x + 1;
+	code.run(pc, pf);
+	// (the colour and depth bytes may overlap, so read everything before restoring)
+	for (int n = 0; n < count; n++)
+		jit[n] = m_vram[addr[n]];
+	for (int n = count - 1; n >= 0; n--)
+		m_vram[addr[n]] = before[n];
+	cpp();
+	for (int n = 0; n < count; n++)
+		ref[n] = m_vram[addr[n]];
+
+	if (std::memcmp(jit, ref, count))
+	{
+		const u32 seen = m_puml_mismatches.fetch_add(1, std::memory_order_relaxed);
+		if (seen < PUML_VERIFY_LOG_LIMIT)
+		{
+			std::string text = util::string_format("PUML verify: %s mismatch at %d,%d:", code.backend_name, x, y);
+			for (int n = 0; n < count; n++)
+				text += util::string_format(" %06x:%02x/%02x", addr[n], jit[n], ref[n]);
+			std::lock_guard<std::mutex> lock(m_probe_lock);
+			m_puml_verify_log.push_back(std::move(text));
+		}
+	}
+}
+
 // Only this band's rows are drawn: rows go to the bands in 16-line stripes.
-void ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v0, const vertex3d &v1, const vertex3d &v2, int band, int bands)
+void ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v0, const vertex3d &v1, const vertex3d &v2, int band, int bands, const puml::compiled *block)
 {
 	const float ex1 = v1.x - v0.x, ey1 = v1.y - v0.y;
 	const float ex2 = v2.x - v0.x, ey2 = v2.y - v0.y;
@@ -6209,6 +7373,70 @@ void ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v
 	float row[P_COUNT];
 	float val[P_COUNT];
 	vertex3d p;
+
+	// one pixel through the C++ pipeline
+	auto shade_cpp = [&] (int x, int y, float px, float py) {
+		for (int i = 0; i < P_COUNT; i++)
+			val[i] = row[i] + dx[i] * px;
+
+		p.x = px;
+		p.y = py;
+		p.z = val[P_Z];
+		p.w = val[P_Q];
+		p.r = val[P_R]; p.g = val[P_G]; p.b = val[P_B]; p.a = val[P_A];
+		p.sr = val[P_SR]; p.sg = val[P_SG]; p.sb = val[P_SB]; p.sf = val[P_SF];
+
+		float lod[2] = { 0.0f, 0.0f };
+		if (rs.textured)
+		{
+			const float iq = persp ? ((val[P_Q] != 0.0f) ? (1.0f / val[P_Q]) : 0.0f) : 1.0f;
+			p.s0 = val[P_S0] * iq; p.t0 = val[P_T0] * iq;
+			p.s1 = val[P_S1] * iq; p.t1 = val[P_T1] * iq;
+
+			for (int unit = 0; unit < 2; unit++)
+			{
+				if (!lod_unit[unit])
+					continue;
+				const int sp = s_param[unit], tp = t_param[unit];
+
+				// d(S/Q) = (dS - (S/Q) dQ) / Q; without perspective Q is 1 and dQ 0
+				const float s = val[sp] * iq, t = val[tp] * iq;
+				const float w = float(1 << rs.tex[unit].width_l2), h = float(1 << rs.tex[unit].height_l2);
+				const float dudx = (dx[sp] - s * dx[P_Q]) * iq * w, dvdx = (dx[tp] - t * dx[P_Q]) * iq * h;
+				const float dudy = (dy[sp] - s * dy[P_Q]) * iq * w, dvdy = (dy[tp] - t * dy[P_Q]) * iq * h;
+				const float rho2 = std::max(dudx * dudx + dvdx * dvdx, dudy * dudy + dvdy * dvdy);
+				lod[unit] = ((rho2 > 0.0f) && std::isfinite(rho2)) ? (0.5f * std::log2(rho2)) : 0.0f;
+			}
+		}
+
+		shade_pixel(rs, x, y, p, lod, true);
+	};
+
+	// With a PUML block the covered pixels of each row are handed over a run at
+	// a time; the block repeats the per-pixel work above.
+	static_assert((puml_tri::PLANES == int(P_COUNT)) && (int(PL_COUNT) == int(P_COUNT)) && (int(PL_Q) == int(P_Q)) && (int(PL_T1) == int(P_T1)));
+	puml_tri tri;
+	puml::ctx pc{};
+	puml::frame pf{};
+	if (block)
+	{
+		std::copy_n(dx, P_COUNT, tri.dx);
+		std::copy_n(dy, P_COUNT, tri.dy);
+		for (int unit = 0; unit < 2; unit++)
+		{
+			tri.tex_w[unit] = rs.tex[unit].enabled ? float(1 << rs.tex[unit].width_l2) : 1.0f;
+			tri.tex_h[unit] = rs.tex[unit].enabled ? float(1 << rs.tex[unit].height_l2) : 1.0f;
+		}
+		pc.base[RGN_VRAM] = m_vram;
+		pc.mask[RGN_VRAM] = m_vram_mask;
+		pc.base[RGN_STATE] = const_cast<u8 *>(reinterpret_cast<const u8 *>(&rs));
+		pc.base[RGN_TRI] = reinterpret_cast<u8 *>(&tri);
+		pc.base[RGN_STIPPLE] = const_cast<u8 *>(reinterpret_cast<const u8 *>(rs.stipple_rows));
+		pc.mask[RGN_STIPPLE] = sizeof(rs.stipple_rows) - 1;
+		pc.user = this;
+		pc.thread = u32(band);
+	}
+
 	for (int y = miny; y <= maxy; y++)
 	{
 		// skip to this band's next stripe
@@ -6239,57 +7467,52 @@ void ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v
 
 		for (int i = 0; i < P_COUNT; i++)
 			row[i] = base[i] + dy[i] * py;
+		if (block)
+		{
+			std::copy_n(row, P_COUNT, tri.row);
+			pc.y = y;
+		}
 
-		for (int x = minx; x <= maxx; x++)
+		int run = 0;
+		bool in_run = false;
+		for (int x = minx; x <= maxx + (block ? 1 : 0); x++)
 		{
 			const float px = float(x) + 0.5f;
-			bool inside = true;
+			bool inside = x <= maxx;
 			for (const edge_t &e : edges)
 			{
+				if (!inside)
+					break;
 				const float w = e.eval(px, py);
 				if ((w < 0.0f) || ((w == 0.0f) && !e.owns))
-				{
 					inside = false;
-					break;
-				}
 			}
-			if (!inside)
-				continue;
 
-			for (int i = 0; i < P_COUNT; i++)
-				val[i] = row[i] + dx[i] * px;
-
-			p.x = px;
-			p.y = py;
-			p.z = val[P_Z];
-			p.w = val[P_Q];
-			p.r = val[P_R]; p.g = val[P_G]; p.b = val[P_B]; p.a = val[P_A];
-			p.sr = val[P_SR]; p.sg = val[P_SG]; p.sb = val[P_SB]; p.sf = val[P_SF];
-
-			float lod[2] = { 0.0f, 0.0f };
-			if (rs.textured)
+			if (block)
 			{
-				const float iq = persp ? ((val[P_Q] != 0.0f) ? (1.0f / val[P_Q]) : 0.0f) : 1.0f;
-				p.s0 = val[P_S0] * iq; p.t0 = val[P_T0] * iq;
-				p.s1 = val[P_S1] * iq; p.t1 = val[P_T1] * iq;
-
-				for (int unit = 0; unit < 2; unit++)
+				if (inside && !in_run)
 				{
-					if (!lod_unit[unit])
-						continue;
-					const int sp = s_param[unit], tp = t_param[unit];
-
-					// d(S/Q) = (dS - (S/Q) dQ) / Q; without perspective Q is 1 and dQ 0
-					const float s = val[sp] * iq, t = val[tp] * iq;
-					const float w = float(1 << rs.tex[unit].width_l2), h = float(1 << rs.tex[unit].height_l2);
-					const float dudx = (dx[sp] - s * dx[P_Q]) * iq * w, dvdx = (dx[tp] - t * dx[P_Q]) * iq * h;
-					const float dudy = (dy[sp] - s * dy[P_Q]) * iq * w, dvdy = (dy[tp] - t * dy[P_Q]) * iq * h;
-					const float rho2 = std::max(dudx * dudx + dvdx * dvdx, dudy * dudy + dvdy * dvdy);
-					lod[unit] = ((rho2 > 0.0f) && std::isfinite(rho2)) ? (0.5f * std::log2(rho2)) : 0.0f;
+					run = x;
+					in_run = true;
+				}
+				else if (!inside && in_run)
+				{
+					in_run = false;
+					if (PUML_VERIFY)
+					{
+						for (int vx = run; vx < x; vx++)
+							puml_verify_pixel(*block, pc, pf, rs, vx, y, [&] { shade_cpp(vx, y, float(vx) + 0.5f, py); });
+					}
+					else
+					{
+						pc.x0 = run;
+						pc.x1 = x;
+						block->run(pc, pf);
+					}
 				}
 			}
-
-			shade_pixel(rs, x, y, p, lod, true);
+			else if (inside)
+				shade_cpp(x, y, px, py);
 		}
 	}
 }

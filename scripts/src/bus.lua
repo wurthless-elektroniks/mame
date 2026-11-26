@@ -4887,6 +4887,11 @@ if BUSES["PCI"] then
 		MAME_DIR .. "src/devices/bus/pci/promotion.h",
 		MAME_DIR .. "src/devices/bus/pci/rage128.cpp",
 		MAME_DIR .. "src/devices/bus/pci/rage128.h",
+		-- PUML pixel pipeline code generation, used by rage128
+		MAME_DIR .. "src/devices/video/puml.cpp",
+		MAME_DIR .. "src/devices/video/puml.h",
+		MAME_DIR .. "src/devices/video/pumlbec.cpp",
+		MAME_DIR .. "src/devices/video/pumlbearm64.cpp",
 		MAME_DIR .. "src/devices/bus/pci/riva128.cpp",
 		MAME_DIR .. "src/devices/bus/pci/riva128.h",
 		MAME_DIR .. "src/devices/bus/pci/rivatnt.cpp",

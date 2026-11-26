@@ -8,13 +8,17 @@
 #include "pci_slot.h"
 
 #include "video/pc_vga.h"
+#include "video/puml.h"
 
 #include "screen.h"
 
 #include <atomic>
 #include <deque>
+#include <functional>
 #include <memory>
 #include <mutex>
+#include <string>
+#include <unordered_set>
 #include <vector>
 
 
@@ -219,6 +223,16 @@ private:
 		u32 palette[256];       // texture palette, for palettised textures only
 	};
 
+	// what a triangle's PUML block reads (region TRI): the planes of draw_triangle,
+	// with row holding this row's values at x = 0
+	struct puml_tri
+	{
+		static constexpr int PLANES = 14;
+		float row[PLANES];
+		float dx[PLANES], dy[PLANES];
+		float tex_w[2], tex_h[2];       // largest level, for the level of detail
+	};
+
 	// 3D primitives waiting for the render threads, each with its state
 	enum : u8
 	{
@@ -374,6 +388,7 @@ private:
 	struct render_batch
 	{
 		std::vector<raster_state> states;
+		std::vector<const puml::compiled *> blocks;     // each state's PUML block, or nullptr
 		std::vector<queued_prim> prims;
 		vram_ranges reads, writes;
 		std::vector<fill_job> fills;
@@ -386,7 +401,7 @@ private:
 		std::atomic<bool> done{ false };
 
 		bool empty() const { return prims.empty() && !is_scale && !is_host; }
-		void clear() { states.clear(); prims.clear(); fills.clear(); fill_writes.count = 0; reads.count = 0; writes.count = 0; is_scale = is_host = false; host.data.clear(); done.store(false); }
+		void clear() { states.clear(); blocks.clear(); prims.clear(); fills.clear(); fill_writes.count = 0; reads.count = 0; writes.count = 0; is_scale = is_host = false; host.data.clear(); done.store(false); }
 	};
 
 	// PCI GART translations, valid for one command buffer or primitive
@@ -493,6 +508,10 @@ private:
 	u32 m_probe_frame;
 	bool m_tile_warned;
 	u64 m_perf_prims, m_perf_batches, m_perf_waits, m_perf_sync;
+	std::unique_ptr<puml::jit> m_puml;  // pixel pipeline code generation
+	std::unordered_set<std::string> m_puml_refused;     // keys the generator or backends turned down
+	std::atomic<u32> m_puml_mismatches; // PUML_VERIFY differences
+	std::vector<std::string> m_puml_verify_log;         // guarded by m_probe_lock
 	osd_ticks_t m_perf_wait_ticks;
 	u32 m_perf_second;
 	bool m_surf_on;             // a SURFACEn window is enabled
@@ -609,7 +628,13 @@ private:
 	void render_batch_band(const render_batch &batch, int band, int bands);
 	static void apply_solid_color(const raster_state &rs, vertex3d &v);
 	static void direct_st(const raster_state &rs, vertex3d &v);
-	void draw_triangle(const raster_state &rs, const vertex3d &v0, const vertex3d &v1, const vertex3d &v2, int band, int bands);
+	void draw_triangle(const raster_state &rs, const vertex3d &v0, const vertex3d &v1, const vertex3d &v2, int band, int bands, const puml::compiled *block = nullptr);
+	std::string puml_key(const raster_state &rs) const;
+	bool puml_generate(const raster_state &rs, puml::block &b) const;
+	const puml::compiled *puml_block(const raster_state &rs);
+	static void puml_texture(const puml::ctx &c, puml::frame &f, u64 param);
+	void puml_verify_pixel(const puml::compiled &code, puml::ctx &pc, puml::frame &pf, const raster_state &rs, int x, int y, const std::function<void ()> &cpp);
+	void puml_flush_log();
 	void draw_point(const raster_state &rs, const vertex3d &v, int band, int bands);
 	void draw_line3d(const raster_state &rs, const vertex3d &v0, const vertex3d &v1, int band, int bands);
 	void shade_pixel(const raster_state &rs, int x, int y, const vertex3d &p, const float *lod, bool polygon);
