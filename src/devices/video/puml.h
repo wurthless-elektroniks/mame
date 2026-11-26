@@ -183,6 +183,7 @@ enum insel : u8
 	X(CSUBS,    2, 1, 0, 0) \
 	X(CMIN,     2, 1, 0, 0) \
 	X(CMAX,     2, 1, 0, 0) \
+	X(CBILERP,  3, 1, 1, 1)  /* bilinear: four ARGB8888 colours in Ia..Ia+3, u8 weights in Ib, Ic; exactly rgbaint_t::bilinear_filter */ \
 	X(DITHER,   2, 1, 0, 0)  /* reserved: 4x4 ordered dither (Voodoo, Saturn, N64) */ \
 	/* vector float (reserved for the float-colour families: NV2A, Flipper, PS2 GS) */ \
 	X(F4ADD,    2, 1, 0, 0) \

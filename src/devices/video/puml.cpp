@@ -487,6 +487,11 @@ std::string validate(const block &b)
 			if (!is_float(i.t) || (i.dst.kind != okind::FREG) || !want(i.src[0], okind::FREG, false) || !want(i.src[1], okind::FREG, false))
 				return fail("float operation needs F registers");
 			break;
+		case op::CBILERP:
+			if ((i.dst.kind != okind::IREG) || !want(i.src[0], okind::IREG, false) || (i.src[0].index + 3 >= REG_I)
+					|| !want(i.src[1], okind::IREG, false) || !want(i.src[2], okind::IREG, false))
+				return fail("CBILERP takes four consecutive I registers and two I weights");
+			break;
 		case op::FCMP:
 			if (!is_float(i.t) || (i.dst.kind != okind::PREG) || !want(i.src[0], okind::FREG, false) || !want(i.src[1], okind::FREG, false) || (i.cond == C_LTU) || (i.cond == C_LEU) || (i.cond == C_GTU) || (i.cond == C_GEU) || (i.cond > C_GE))
 				return fail("FCMP writes a predicate from F registers with a signed condition");

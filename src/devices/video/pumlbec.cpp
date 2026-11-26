@@ -14,6 +14,8 @@
 #include "emu.h"
 #include "puml.h"
 
+#include "video/rgbutil.h"
+
 #include <cmath>
 #include <cstdio>
 
@@ -326,6 +328,13 @@ private:
 					f.set_fs(i.dst.index, float(f.fd(i.src[0].index)));
 				break;
 
+			case op::CBILERP:
+			{
+				const int c = i.src[0].index;
+				f.i[i.dst.index] = rgbaint_t::bilinear_filter(u32(f.i[c]), u32(f.i[c + 1]), u32(f.i[c + 2]), u32(f.i[c + 3]),
+						u8(f.i[i.src[1].index]), u8(f.i[i.src[2].index]));
+				break;
+			}
 			case op::PAND: pset(p(0) && p(1)); break;
 			case op::POR:  pset(p(0) || p(1)); break;
 			case op::PXOR: pset(p(0) != p(1)); break;

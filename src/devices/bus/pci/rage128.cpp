@@ -173,6 +173,10 @@
 #include <cstring>
 #include <cmath>
 #include <functional>
+#include <thread>
+#if !defined(_WIN32)
+#include <time.h>
+#endif
 #include <string>
 #include <vector>
 
@@ -188,7 +192,7 @@
 #define LOG_PERF     (1U << 10)
 #define LOG_PROBE    (1U << 11)
 
-#define VERBOSE (0)
+#define VERBOSE (LOG_PERF)
 #include "logmacro.h"
 
 // The pixel pipeline is the reference PUML blocks are checked against byte for
@@ -576,14 +580,37 @@ constexpr int TEXEL_BITS[16] = { 0, 4, 8, 16, 16, 24, 32, 8, 8, 8, 16, 16, 16, 1
 // bits 31:30 select a tiled layout
 constexpr u32 TEX_OFFSET_MASK = 0x03ff'ffff;
 
-// render batches queued or rendering before the emulation thread waits
-constexpr size_t MAX_OUTSTANDING_BATCHES = 8;
+// render batches queued or rendering before the emulation thread waits for the oldest
+constexpr size_t MAX_OUTSTANDING_BATCHES = 16;
 
 // Debugging switches for the render pipeline: wait for every batch as soon as
 // it is submitted, and do fills, host data and the scaler on the emulation
 // thread instead of queuing them.  Neither should change what is drawn.
 constexpr bool DEBUG_SYNC_RENDER = false;
 constexpr bool DEBUG_NO_QUEUED_2D = false;
+
+// A hack in place of 3D engine timing, which isn't emulated: the engine finishes
+// everything at once, so games that present as fast as the card allows (Unreal
+// blits each frame to the screen without waiting for vblank) draw far more frames
+// per emulated second than the real card could.  With this set, a second present
+// of a 3D frame within one refresh holds the CPU until the next vblank, so they
+// present at most once per refresh.  Set RAGE128_PRESENT_CAP=0 to turn it off.
+#ifndef RAGE128_PRESENT_CAP
+#define RAGE128_PRESENT_CAP 1
+#endif
+constexpr bool PRESENT_CAP = RAGE128_PRESENT_CAP;
+
+// A present goes to the render threads behind the 3D frame instead of waiting
+// for it, so the CPU runs on into the next frame while this one renders, as it
+// would on the real card.  The next present, or anything else that touches the
+// screen or the frame, waits for it as usual.  The screen shows the previous
+// frame until the copy has been done: whether a refresh shows the new frame
+// depends on host speed, but nothing the guest can see does.  Set
+// RAGE128_PRESENT_QUEUE=0 to wait for the frame at the present instead.
+#ifndef RAGE128_PRESENT_QUEUE
+#define RAGE128_PRESENT_QUEUE 1
+#endif
+constexpr bool PRESENT_QUEUE = RAGE128_PRESENT_QUEUE;
 
 // signed fields packed as 16:16 in coordinate registers
 inline s32 lo16s(u32 v) { return s16(v & 0xffff); }
@@ -1009,6 +1036,8 @@ void ati_rage128_device::device_start()
 	m_render_queue = osd_work_queue_alloc(WORK_QUEUE_FLAG_MULTI | WORK_QUEUE_FLAG_HIGH_FREQ | WORK_QUEUE_FLAG_COARSE);
 	const int bands = std::clamp(osd_work_queue_thread_count(m_render_queue), 1, 16);
 	m_band_count = bands;
+	logerror("3D: %d render threads (work queue reports %d; host reports %u hardware threads)\n",
+			bands, osd_work_queue_thread_count(m_render_queue), std::thread::hardware_concurrency());
 	m_pending = spare_batch();
 	m_chain_busy = false;
 	m_probe_frame = 0;
@@ -1016,6 +1045,15 @@ void ati_rage128_device::device_start()
 	m_perf_prims = m_perf_batches = m_perf_waits = m_perf_sync = 0;
 	m_perf_wait_ticks = 0;
 	m_perf_second = 0;
+	m_perf_sites.clear();
+	m_perf_state_ids.clear();
+	m_perf_state_desc.clear();
+	for (u32 i = 0; i < PERF_STATES; i++)
+		m_perf_state_ticks[i] = m_perf_state_pixels[i] = m_perf_state_prims[i] = 0;
+	m_perf_fill_ticks = m_perf_band_busy = m_perf_band_slots = m_perf_batch_wall = 0;
+	m_perf_flips = m_perf_present_blits = 0;
+	m_perf_presents = m_perf_throttled = m_perf_queued = 0;
+	m_perf_last_vblank = 0;
 
 	m_vline_timer = timer_alloc(FUNC(ati_rage128_device::vline_tick), this);
 
@@ -1041,6 +1079,9 @@ void ati_rage128_device::device_start()
 	save_item(NAME(m_pmcsr));
 	save_item(NAME(m_crtc_offset_latched));
 	save_item(NAME(m_frame_count));
+	save_item(NAME(m_3d_dst_lo));
+	save_item(NAME(m_3d_dst_hi));
+	save_item(NAME(m_present_frame));
 	save_item(NAME(m_int_status));
 	save_item(NAME(m_crtc_vblank_save));
 	save_item(NAME(m_irq_state));
@@ -1201,6 +1242,8 @@ void ati_rage128_device::device_reset()
 
 	m_crtc_offset_latched = 0;
 	m_frame_count = 0;
+	m_3d_dst_lo = m_3d_dst_hi = 0;
+	m_present_frame = ~0U;
 	m_int_status = 0;
 	m_crtc_vblank_save = false;
 	m_irq_state = false;
@@ -1733,6 +1776,8 @@ void ati_rage128_device::reg_w(u32 reg, u32 data, u32 mem_mask)
 		return;
 
 	case CRTC_OFFSET:
+		if ((VERBOSE & LOG_PERF) && ((val ^ m_regs[reg / 4]) & 0x07ff'ffff))
+			m_perf_flips++;
 		m_regs[reg / 4] = val;
 		// with CRTC_OFFSET_FLIP_CNTL set the new start address waits for vertical blank
 		if (!BIT(m_regs[CRTC_OFFSET_CNTL / 4], 16))
@@ -2238,9 +2283,23 @@ u32 ati_rage128_device::screen_update(screen_device &screen, bitmap_rgb32 &bitma
 		const s32 last = BIT(m_regs[CRTC_GEN_CNTL / 4], 0) ? (cliprect.bottom() >> 1) : cliprect.bottom();
 		u32 lo, hi;
 		rows_span(m_crtc_offset_latched, pitch, 1, 0, last, 0, lo, hi);
-		wait_for_vram_span(lo, hi, false);
+		if (m_pending->writes.overlaps(lo, hi))
+		{
+			wait_for_render();
+		}
+		else
+		{
+			// a present that hasn't been copied yet leaves the previous frame showing
+			retire_batches();
+			render_batch *const batch = last_batch_touching(lo, hi, false, PRESENT_QUEUE);
+			if (batch)
+				wait_for_batch(batch);
+		}
 		wait_for_vram_span(m_cursor_offset & m_vram_mask, (m_cursor_offset & m_vram_mask) + 64 * 16, false);
 	}
+	std::unique_lock<std::shared_mutex> scanout(m_scanout_lock, std::defer_lock);
+	if (PRESENT_QUEUE)
+		scanout.lock();
 
 	// TODO: blank when !display_enabled().  Not done for now: the Mac OS 9 ROM ndrv
 	// saves and restores CRTC_GEN_CNTL byte 3 with an unaligned 32-bit read around
@@ -3241,6 +3300,23 @@ void ati_rage128_device::gui_trigger_rect()
 	// and ROP 0xf0 (PATCOPY), leaving SRC_X/SRC_Y wherever the last blit finished;
 	// clipping those against SRC_SC_BOTTOM_RIGHT cut the following fills short.
 	const bool from_memory = (source == SRC_SOURCE_MEMORY) && rop_uses_source(BIT(m_dp_mix, 16, 8));
+
+	// A copy of at least a quarter of the screen into the lines shown is a copy
+	// to the screen; one whose source the last 3D state drew into presents a frame.
+	bool to_screen = false;
+	if (from_memory)
+	{
+		const rectangle &vis = m_screen->visible_area();
+		if ((u64(w) * u64(h) * 4) >= (u64(vis.width()) * u64(vis.height())))
+		{
+			const u32 pitch = BIT(m_regs[CRTC_PITCH / 4], 0, 10) * 8 * 4;
+			u32 lo, hi;
+			rows_span(m_crtc_offset_latched, pitch, 1, 0, vis.height() - 1, 0, lo, hi);
+			to_screen = (dst_lo < hi) && (lo < dst_hi);
+		}
+	}
+	if ((VERBOSE & LOG_PERF) && to_screen)
+		m_perf_present_blits++;
 	if (from_memory)
 	{
 		const s32 src_y0 = (y_step > 0) ? m_src_y : (m_src_y - h + 1);
@@ -3249,7 +3325,48 @@ void ati_rage128_device::gui_trigger_rect()
 			rows_span(m_src_offset, src_pitch_bytes(), bpp, src_y0, std::min<s32>(src_y0 + h - 1, m_src_sc_bottom), m_src_sc_right, src_lo, src_hi);
 		else
 			rows_span(m_src_offset, m_src_pitch * 8, 1, src_y0, std::min<s32>(src_y0 + h - 1, m_src_sc_bottom), (m_src_sc_right + 7) / 8, src_lo, src_hi);
-		wait_for_vram_span(src_lo, src_hi, false);
+
+		// A present whose source and destination don't overlap, and whose rows stay
+		// inside the pitch, goes to the render threads behind the frame (see
+		// PRESENT_QUEUE) with each band copying the rows of its own stripes.  The
+		// colour compare reads registers, so a copy using it isn't queued.
+		const bool present = to_screen && (src_lo < m_3d_dst_hi) && (m_3d_dst_lo < src_hi);
+		copy_job job;
+		const bool queue = PRESENT_QUEUE && !DEBUG_NO_QUEUED_2D && present && (src_dtype == 3) &&
+				((src_hi <= dst_lo) || (dst_hi <= src_lo)) && (u64(m_sc_right + 1) * u64(bpp) <= dst_pitch_bytes()) &&
+				make_copy(w, h, x_step, y_step, job) && !job.compare;
+		if (!queue)
+			wait_for_vram_span(src_lo, src_hi, false);
+
+		// at most one present per refresh: a second one holds the CPU until vblank
+		if (present)
+		{
+			if (VERBOSE & LOG_PERF)
+				m_perf_presents++;
+			// A held present lands in the next refresh, so it counts against that one:
+			// a further present before the following vblank is held too.
+			bool held = false;
+			if (PRESENT_CAP && (m_present_frame == m_frame_count))
+			{
+				device_execute_interface *const cpu = machine().scheduler().currently_executing();
+				if (cpu)
+				{
+					cpu->spin_until_time(m_screen->time_until_vblank_start());
+					held = true;
+					if (VERBOSE & LOG_PERF)
+						m_perf_throttled++;
+				}
+			}
+			m_present_frame = m_frame_count + (held ? 1 : 0);
+		}
+		if (queue)
+		{
+			if (VERBOSE & LOG_PERF)
+				m_perf_queued++;
+			queue_copy(job, src_lo, src_hi, dst_lo, dst_hi);
+			m_dst_y += h * y_step;
+			return;
+		}
 	}
 	const u32 fg = m_regs[DP_SRC_FRGD_CLR / 4], bg = m_regs[DP_SRC_BKGD_CLR / 4];
 	const bool lsb_first = BIT(m_dp_datatype, 30);
@@ -3501,6 +3618,15 @@ void ati_rage128_device::host_rows(const host_job &j, int first, int last)
 // Returns false, drawing nothing, when it doesn't apply.
 bool ati_rage128_device::copy_rect(int w, int h, int x_step, int y_step)
 {
+	copy_job j;
+	if (!make_copy(w, h, x_step, y_step, j))
+		return false;
+	copy_rows(j, 0, 1);
+	return true;
+}
+
+bool ati_rage128_device::make_copy(int w, int h, int x_step, int y_step, copy_job &j) const
+{
 	const u8 rop = BIT(m_dp_mix, 16, 8);
 	const int brush = BIT(m_dp_datatype, 8, 4);
 	const bool uses_pat = ((rop >> 4) ^ rop) & 0x0f;
@@ -3510,14 +3636,28 @@ bool ati_rage128_device::copy_rect(int w, int h, int x_step, int y_step)
 	if (!(m_gmc & GMC_AUX_CLIP_DIS) && (m_regs[AUX_SC_CNTL / 4] & 0x15))
 		return false;
 
-	const int bpp = dst_bpp();
-	const u32 pitch = dst_pitch_bytes(), spitch = src_pitch_bytes();
-	const u32 pat = (brush == BRUSH_SOLID_COLOR) ? m_regs[DP_BRUSH_FRGD_CLR / 4] : 0;
-	const u32 pixel_mask = (bpp >= 4) ? ~0U : ((1U << (bpp * 8)) - 1);
-	const u32 wmask = ((m_gmc & GMC_WR_MSK_DIS) ? ~0U : m_regs[DP_WRITE_MASK / 4]) | ~pixel_mask;
-	const bool compare = !(m_gmc & GMC_CLR_CMP_CNTL_DIS) && (m_regs[CLR_CMP_CNTL / 4] & 0x0707);
+	j.bpp = dst_bpp();
+	j.pitch = dst_pitch_bytes();
+	j.spitch = src_pitch_bytes();
+	j.src_base = m_src_offset;
+	j.dst_base = m_dst_offset;
+	j.src_tiled = m_src_tile;
+	j.dst_tiled = m_dst_tile;
+	j.rop = rop;
+	j.pat = (brush == BRUSH_SOLID_COLOR) ? m_regs[DP_BRUSH_FRGD_CLR / 4] : 0;
+	const u32 pixel_mask = (j.bpp >= 4) ? ~0U : ((1U << (j.bpp * 8)) - 1);
+	j.wmask = ((m_gmc & GMC_WR_MSK_DIS) ? ~0U : m_regs[DP_WRITE_MASK / 4]) | ~pixel_mask;
+	j.compare = !(m_gmc & GMC_CLR_CMP_CNTL_DIS) && (m_regs[CLR_CMP_CNTL / 4] & 0x0707);
 	const bool uses_dst = ((rop >> 1) ^ rop) & 0x55;
-	const bool read_dst = uses_dst || compare || (wmask != ~0U);
+	j.read_dst = uses_dst || j.compare || (j.wmask != ~0U);
+	j.dst_x = m_dst_x;
+	j.dst_y = m_dst_y;
+	j.src_x = m_src_x;
+	j.src_y = m_src_y;
+	j.x_step = x_step;
+	j.y_step = y_step;
+	j.src_right = m_src_sc_right;
+	j.src_bottom = m_src_sc_bottom;
 
 	// the columns and rows whose destination is inside the scissor
 	const s32 left = std::max<s32>(m_sc_left, 0), right = m_sc_right;
@@ -3534,37 +3674,55 @@ bool ati_rage128_device::copy_rect(int w, int h, int x_step, int y_step)
 			end = std::min<s32>(n, start - lo + 1);
 		}
 	};
-	int col0, col1, row0, row1;
-	range(m_dst_x, x_step, w, left, right, col0, col1);
-	range(m_dst_y, y_step, h, top, bottom, row0, row1);
+	range(m_dst_x, x_step, w, left, right, j.col0, j.col1);
+	range(m_dst_y, y_step, h, top, bottom, j.row0, j.row1);
+	return true;
+}
 
-	for (int row = row0; row < row1; row++)
+// The rows of a copy in this band's 16-line stripes (all of them for one band).
+// Only a copy whose source and destination don't overlap is split into bands.
+void ati_rage128_device::copy_rows(const copy_job &j, int band, int bands)
+{
+	for (int row = j.row0; row < j.row1; row++)
 	{
-		const int dy = m_dst_y + row * y_step;
-		const int sy = m_src_y + row * y_step;
-		if ((sy < 0) || (sy > m_src_sc_bottom))
+		const int dy = j.dst_y + row * j.y_step;
+		if ((bands > 1) && (((dy >> 4) % bands) != band))
 			continue;
-		for (int col = col0; col < col1; col++)
+		const int sy = j.src_y + row * j.y_step;
+		if ((sy < 0) || (sy > j.src_bottom))
+			continue;
+		for (int col = j.col0; col < j.col1; col++)
 		{
-			const int dx = m_dst_x + col * x_step;
-			const int sx = m_src_x + col * x_step;
-			if ((sx < 0) || (sx > m_src_sc_right))
+			const int dx = j.dst_x + col * j.x_step;
+			const int sx = j.src_x + col * j.x_step;
+			if ((sx < 0) || (sx > j.src_right))
 				continue;
-			const u32 src = read_pixel(m_src_offset, spitch, bpp, sx, sy, m_src_tile);
+			const u32 src = read_pixel(j.src_base, j.spitch, j.bpp, sx, sy, j.src_tiled);
 			u32 res = src;
-			if (read_dst)
+			if (j.read_dst)
 			{
-				const u32 dst = read_pixel(m_dst_offset, pitch, bpp, dx, dy, m_dst_tile);
-				if (compare && !color_compare_pass(src, dst))
+				const u32 dst = read_pixel(j.dst_base, j.pitch, j.bpp, dx, dy, j.dst_tiled);
+				if (j.compare && !color_compare_pass(src, dst))
 					continue;
-				res = (rop3(rop, pat, src, dst) & wmask) | (dst & ~wmask);
+				res = (rop3(j.rop, j.pat, src, dst) & j.wmask) | (dst & ~j.wmask);
 			}
-			else if (rop != 0xcc)
-				res = rop3(rop, pat, src, 0);
-			write_pixel(m_dst_offset, pitch, bpp, dx, dy, res, m_dst_tile);
+			else if (j.rop != 0xcc)
+				res = rop3(j.rop, j.pat, src, 0);
+			write_pixel(j.dst_base, j.pitch, j.bpp, dx, dy, res, j.dst_tiled);
 		}
 	}
-	return true;
+}
+
+// A present goes to the render threads as a batch of its own, after the frame.
+void ati_rage128_device::queue_copy(const copy_job &j, u32 src_lo, u32 src_hi, u32 dst_lo, u32 dst_hi)
+{
+	kick_render();
+	render_batch &batch = *m_pending;
+	batch.copy = j;
+	batch.is_copy = true;
+	batch.reads.add(src_lo, src_hi);
+	batch.writes.add(dst_lo, dst_hi);
+	kick_render();
 }
 
 void ati_rage128_device::gui_trigger_line()
@@ -5038,10 +5196,24 @@ void ati_rage128_device::queue_prim(u8 kind, const vertex3d &v0, const vertex3d 
 	if (m_rs.sync)
 	{
 		m_perf_sync++;
+		note_3d_destination(m_rs);
 		wait_for_render();
 		switch (kind)
 		{
-		case PRIM_TRIANGLE: draw_triangle(m_rs, v0, v1, v2, 0, 1, puml_block(m_rs)); break;
+		case PRIM_TRIANGLE:
+		{
+			const puml::compiled *const block = puml_block(m_rs);
+			const osd_ticks_t start = (VERBOSE & LOG_PERF) ? osd_ticks() : 0;
+			const u32 pixels = draw_triangle(m_rs, v0, v1, v2, 0, 1, block);
+			if (VERBOSE & LOG_PERF)
+			{
+				const u32 id = perf_state_id(m_rs, block);
+				m_perf_state_ticks[id] += osd_ticks() - start;
+				m_perf_state_pixels[id] += pixels;
+				m_perf_state_prims[id]++;
+			}
+			break;
+		}
 		case PRIM_LINE: draw_line3d(m_rs, v0, v1, 0, 1); break;
 		default: draw_point(m_rs, v0, 0, 1); break;
 		}
@@ -5058,10 +5230,13 @@ void ati_rage128_device::queue_prim(u8 kind, const vertex3d &v0, const vertex3d 
 			if (m_pending->fill_writes.overlaps(textures))
 				kick_render();
 		}
+		note_3d_destination(m_rs);
 		// (compiling may flush the cache, which first waits for everything queued)
 		const puml::compiled *const block = puml_block(m_rs);
 		m_pending->states.push_back(m_rs);
 		m_pending->blocks.push_back(block);
+		if (VERBOSE & LOG_PERF)
+			m_pending->perf_ids.push_back(perf_state_id(m_rs, block));
 		note_vram_use(*m_pending, m_rs);
 	}
 	render_batch &batch = *m_pending;
@@ -5076,17 +5251,23 @@ void ati_rage128_device::queue_prim(u8 kind, const vertex3d &v0, const vertex3d 
 
 // Submit the queued primitives.  They start at once if nothing else is
 // rendering, otherwise when the batches before them are done.
-void ati_rage128_device::kick_render()
+void ati_rage128_device::kick_render(const std::source_location &where)
 {
 	if (m_pending->empty())
 		return;
 
-	// keep the number of batches in flight bounded
+	// keep the number of batches in flight bounded (shows up as kick_render's own site)
 	retire_batches();
 	if (m_outstanding.size() >= MAX_OUTSTANDING_BATCHES)
-		wait_for_outstanding();
+		wait_for_batch(m_outstanding.front().get(), where);
 
 	render_batch *const batch = m_pending.get();
+	if (VERBOSE & LOG_PERF)
+	{
+		perf_site &site = perf_site_for(where);
+		site.kicks++;
+		site.kick_prims += batch->prims.size();
+	}
 	m_perf_prims += batch->prims.size();
 	m_perf_batches++;
 	for (int i = 0; i < m_band_count; i++)
@@ -5113,6 +5294,8 @@ void ati_rage128_device::kick_render()
 // runs the items, and so the next batch, on the calling thread.
 void ati_rage128_device::launch_batch(render_batch *batch)
 {
+	if (VERBOSE & LOG_PERF)
+		batch->launched = osd_ticks();
 	batch->bands_left.store(m_band_count, std::memory_order_relaxed);
 	osd_work_item_queue_multiple(m_render_queue, render_band_callback, m_band_count, &batch->bands[0], sizeof(render_band), WORK_ITEM_FLAG_AUTO_RELEASE);
 }
@@ -5142,7 +5325,7 @@ std::unique_ptr<ati_rage128_device::render_batch> ati_rage128_device::spare_batc
 }
 
 // Every submitted batch is in VRAM when this returns.
-void ati_rage128_device::wait_for_outstanding()
+void ati_rage128_device::wait_for_outstanding(const std::source_location &where)
 {
 	retire_batches();
 	if (m_outstanding.empty())
@@ -5152,37 +5335,85 @@ void ati_rage128_device::wait_for_outstanding()
 	while (!osd_work_queue_wait(m_render_queue, osd_ticks_per_second() * 10)) { }
 	retire_batches();
 	m_perf_waits++;
-	m_perf_wait_ticks += osd_ticks() - start;
+	const osd_ticks_t waited = osd_ticks() - start;
+	m_perf_wait_ticks += waited;
+	if (VERBOSE & LOG_PERF)
+	{
+		perf_site &site = perf_site_for(where);
+		site.waits++;
+		site.wait_ticks += waited;
+	}
 }
 
 // Everything queued so far is in VRAM when this returns.
-void ati_rage128_device::wait_for_render()
+void ati_rage128_device::wait_for_render(const std::source_location &where)
 {
-	kick_render();
-	wait_for_outstanding();
+	kick_render(where);
+	wait_for_outstanding(where);
 }
 
 // An access by anything but the render threads to a span of VRAM waits only
 // for batches that may write it (a read) or touch it at all (a write).  The
 // ranges are conservative, so the result doesn't depend on host timing.
-void ati_rage128_device::wait_for_vram_span(u32 start, u32 end, bool write)
+void ati_rage128_device::wait_for_vram_span(u32 start, u32 end, bool write, const std::source_location &where)
 {
 	if (m_pending->writes.overlaps(start, end) || (write && m_pending->reads.overlaps(start, end)))
 	{
-		wait_for_render();
+		wait_for_render(where);
 		return;
 	}
 
 	retire_batches();
+	render_batch *const batch = last_batch_touching(start, end, write, false);
+	if (batch)
+		wait_for_batch(batch, where);
+}
+
+// The newest submitted batch not yet done that may write a span (a read) or
+// touch it at all (a write), optionally passing over queued presents.  Batches
+// finish in order, so once it is done so is everything before it.
+ati_rage128_device::render_batch *ati_rage128_device::last_batch_touching(u32 start, u32 end, bool write, bool skip_presents)
+{
+	render_batch *last = nullptr;
 	for (const auto &batch : m_outstanding)
 	{
-		if (batch->done.load(std::memory_order_acquire))
+		if (batch->done.load(std::memory_order_acquire) || (skip_presents && batch->is_copy))
 			continue;
 		if (batch->writes.overlaps(start, end) || (write && batch->reads.overlaps(start, end)))
-		{
-			wait_for_outstanding();
-			return;
-		}
+			last = batch.get();
+	}
+	return last;
+}
+
+// Wait until a submitted batch, and so every one before it, is in VRAM.  The
+// newest one is waited for through the work queue, which has this thread
+// render as well; for an older one this thread only waits, so that the
+// batches after it carry on rendering behind it.
+void ati_rage128_device::wait_for_batch(render_batch *batch, const std::source_location &where)
+{
+	if (batch->done.load(std::memory_order_acquire))
+	{
+		retire_batches();
+		return;
+	}
+	if (batch == m_outstanding.back().get())
+	{
+		wait_for_outstanding(where);
+		return;
+	}
+
+	const osd_ticks_t start = osd_ticks();
+	while (!batch->done.load(std::memory_order_acquire))
+		std::this_thread::yield();
+	retire_batches();
+	m_perf_waits++;
+	const osd_ticks_t waited = osd_ticks() - start;
+	m_perf_wait_ticks += waited;
+	if (VERBOSE & LOG_PERF)
+	{
+		perf_site &site = perf_site_for(where);
+		site.waits++;
+		site.wait_ticks += waited;
 	}
 }
 
@@ -5307,9 +5538,154 @@ void ati_rage128_device::perf_tick()
 		LOGPERF("3D: %u primitives in %u batches, %u drawn on the emulation thread (system memory textures), %u waits for the render threads totalling %.1f ms\n",
 				u32(m_perf_prims), u32(m_perf_batches), u32(m_perf_sync), u32(m_perf_waits),
 				double(m_perf_wait_ticks) * 1000.0 / double(osd_ticks_per_second()));
+		perf_log_detail();
 	}
 	m_perf_prims = m_perf_batches = m_perf_waits = m_perf_sync = 0;
 	m_perf_wait_ticks = 0;
+}
+
+// the bytes a 3D state can draw into, for spotting the present of a 3D frame
+void ati_rage128_device::note_3d_destination(const raster_state &rs)
+{
+	if (rs.dst_bpp)
+		rows_span(rs.dst_base, rs.dst_pitch, rs.dst_bpp, rs.sc_top, rs.sc_bottom, rs.sc_right, m_3d_dst_lo, m_3d_dst_hi);
+}
+
+// LOG_PERF: CPU time the calling thread has used, where the host can say
+u64 ati_rage128_device::thread_cpu_ns()
+{
+#if defined(CLOCK_THREAD_CPUTIME_ID)
+	struct timespec ts;
+	if (!clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts))
+		return u64(ts.tv_sec) * 1'000'000'000U + u64(ts.tv_nsec);
+#endif
+	return 0;
+}
+
+// LOG_PERF: the statistics for a call site of kick_render() and the waits
+ati_rage128_device::perf_site &ati_rage128_device::perf_site_for(const std::source_location &where)
+{
+	for (perf_site &s : m_perf_sites)
+		if ((s.line == where.line()) && !std::strcmp(s.file, where.file_name()))
+			return s;
+
+	// "void ati_rage128_device::queue_prim(u8, ...)" -> "queue_prim"
+	std::string func = where.function_name();
+	const size_t paren = func.find('(');
+	if (paren != std::string::npos)
+		func.resize(paren);
+	const size_t colons = func.rfind("::");
+	if (colons != std::string::npos)
+		func.erase(0, colons + 2);
+	const size_t space = func.rfind(' ');
+	if (space != std::string::npos)
+		func.erase(0, space + 1);
+	m_perf_sites.push_back(perf_site{ where.file_name(), u32(where.line()), func, 0, 0, 0, 0 });
+	return m_perf_sites.back();
+}
+
+// LOG_PERF: a statistics slot per distinct pipeline configuration, named by
+// what drives its cost: texture units and their filters, blending, depth,
+// stencil, fog, the destination format and whether a PUML block shades it
+u32 ati_rage128_device::perf_state_id(const raster_state &rs, const puml::compiled *block)
+{
+	std::string desc;
+	if (rs.textured)
+	{
+		for (int u = 0; u < 2; u++)
+		{
+			const texunit &tu = rs.tex[u];
+			if (!tu.enabled)
+				continue;
+			desc += util::string_format("tex%d fmt %d %dx%d min %d mag %s%s%s%s comb %08x; ", u, tu.fmt, 1 << tu.width_l2, 1 << tu.height_l2,
+					tu.min_filter, tu.linear_mag ? "linear" : "nearest", tu.mip_disable ? " nomip" : "", tu.need_lod ? " lod" : "",
+					(tu.offset[tu.top] >> 30) ? " tiled" : "", tu.combine);
+		}
+		desc += rs.perspective ? "persp; " : "";
+	}
+	else
+		desc += "untextured; ";
+	if (rs.blend)
+		desc += util::string_format("blend %d/%d%s; ", rs.blend_src, rs.blend_dst, rs.blend_subtract ? " sub" : "");
+	if (rs.z_test)
+		desc += util::string_format("z fn %d%s %d-bit; ", rs.z_func, rs.z_write ? " write" : "", rs.z_bytes * 8);
+	if (rs.stencil)
+		desc += "stencil; ";
+	if (rs.alpha_test)
+		desc += util::string_format("atest %d; ", rs.alpha_func);
+	if (rs.fog)
+		desc += "fog; ";
+	if (rs.specular)
+		desc += "spec; ";
+	if (rs.chroma_key || rs.alpha_mask || rs.clr_cmp_fn)
+		desc += "keys; ";
+	desc += util::string_format("dst %d%s; %s", rs.dst_type, rs.dst_tiled ? " tiled" : "", block ? block->backend_name : "C++ path");
+
+	const auto it = m_perf_state_ids.find(desc);
+	if (it != m_perf_state_ids.end())
+		return it->second;
+	const u32 id = std::min<u32>(u32(m_perf_state_desc.size()), PERF_STATES - 1);
+	if (id < PERF_STATES - 1)
+	{
+		m_perf_state_desc.push_back(desc);
+		m_perf_state_ids.emplace(std::move(desc), id);
+	}
+	return id;
+}
+
+// LOG_PERF: the second's waits and submits by call site, the render threads'
+// use of their time, and the configurations that took it
+void ati_rage128_device::perf_log_detail()
+{
+	const double ms = 1000.0 / double(osd_ticks_per_second());
+
+	std::vector<perf_site *> sites;
+	for (perf_site &s : m_perf_sites)
+		if (s.kicks || s.waits)
+			sites.push_back(&s);
+	std::sort(sites.begin(), sites.end(), [] (const perf_site *a, const perf_site *b) { return a->wait_ticks > b->wait_ticks; });
+	std::string waits, kicks;
+	for (const perf_site *s : sites)
+		if (s->waits && (waits.size() < 400))
+			waits += util::string_format(" %s:%u %ux %.1f ms;", s->func, s->line, s->waits, double(s->wait_ticks) * ms);
+	std::sort(sites.begin(), sites.end(), [] (const perf_site *a, const perf_site *b) { return a->kicks > b->kicks; });
+	for (const perf_site *s : sites)
+		if (s->kicks && (kicks.size() < 400))
+			kicks += util::string_format(" %s:%u %ux (%u prims each);", s->func, s->line, s->kicks, u32(s->kick_prims / s->kicks));
+	LOGPERF("3D frames: %u flips, %u copies to the screen (%u presenting 3D, %u held until vblank, %u queued behind the frame), %u vblanks this emulated second\n",
+			m_perf_flips, m_perf_present_blits, m_perf_presents, m_perf_throttled, m_perf_queued, m_frame_count - m_perf_last_vblank);
+	m_perf_flips = m_perf_present_blits = m_perf_presents = m_perf_throttled = m_perf_queued = 0;
+	m_perf_last_vblank = m_frame_count;
+	LOGPERF("3D waits by site:%s\n", waits.empty() ? " none" : waits);
+	LOGPERF("3D submits by site:%s\n", kicks.empty() ? " none" : kicks);
+	for (perf_site &s : m_perf_sites)
+		s.kicks = s.waits = 0, s.kick_prims = 0, s.wait_ticks = 0;
+
+	const u64 busy = m_perf_band_busy.exchange(0), slots = m_perf_band_slots.exchange(0), wall = m_perf_batch_wall.exchange(0);
+	const u64 fill = m_perf_fill_ticks.exchange(0), cpu_ns = m_perf_band_cpu_ns.exchange(0);
+	LOGPERF("3D render threads: %d bands busy %.1f ms of %.1f ms in batches (%.0f%%; the rest idle at batch ends), batches in flight %.1f ms, fills %.1f ms\n",
+			m_band_count, double(busy) * ms, double(slots) * ms, slots ? (100.0 * double(busy) / double(slots)) : 0.0, double(wall) * ms, double(fill) * ms);
+	// wall time a band is busy but not on a CPU is time it was descheduled or blocked
+	if (cpu_ns)
+		LOGPERF("3D render threads: %.1f ms of thread CPU time in those %.1f ms busy (%.0f%%)\n",
+				double(cpu_ns) / 1e6, double(busy) * ms, busy ? (100.0 * double(cpu_ns) / 1e6 / (double(busy) * ms)) : 0.0);
+
+	struct entry { u32 id; u64 ticks, pixels, prims; };
+	std::vector<entry> states;
+	for (u32 i = 0; i < PERF_STATES; i++)
+	{
+		const u64 t = m_perf_state_ticks[i].exchange(0), px = m_perf_state_pixels[i].exchange(0), pr = m_perf_state_prims[i].exchange(0);
+		if (t || pr)
+			states.push_back(entry{ i, t, px, pr });
+	}
+	std::sort(states.begin(), states.end(), [] (const entry &a, const entry &b) { return a.ticks > b.ticks; });
+	for (size_t n = 0; (n < states.size()) && (n < 6); n++)
+	{
+		const entry &e = states[n];
+		LOGPERF("3D state %u: %.1f ms, %u prims, %u pixels (%.1f ns each): %s\n", e.id, double(e.ticks) * ms, u32(e.prims), u32(e.pixels),
+				e.pixels ? (double(e.ticks) * 1e9 / double(osd_ticks_per_second()) / double(e.pixels)) : 0.0,
+				(e.id < m_perf_state_desc.size()) ? m_perf_state_desc[e.id] : std::string("(other states)"));
+	}
 }
 
 // PUML_VERIFY findings from the render threads, logged on the emulation thread
@@ -5329,6 +5705,8 @@ void *ati_rage128_device::render_band_callback(void *param, int threadid)
 	const render_band &band = *reinterpret_cast<const render_band *>(param);
 	ati_rage128_device *const device = band.device;
 	render_batch *const batch = band.batch;
+	const osd_ticks_t band_start = (VERBOSE & LOG_PERF) ? osd_ticks() : 0;
+	const u64 cpu_start = (VERBOSE & LOG_PERF) ? thread_cpu_ns() : 0;
 	if (batch->is_scale)
 	{
 		const scale_job &j = batch->scale;
@@ -5339,15 +5717,35 @@ void *ati_rage128_device::render_band_callback(void *param, int threadid)
 		const host_job &j = batch->host;
 		device->host_rows(j, j.h * band.index / band.count, j.h * (band.index + 1) / band.count);
 	}
+	else if (batch->is_copy)
+	{
+		std::shared_lock<std::shared_mutex> scanout(device->m_scanout_lock);
+		device->copy_rows(batch->copy, band.index, band.count);
+	}
 	else
 	{
 		device->render_batch_band(*batch, band.index, band.count);
+	}
+
+	if (VERBOSE & LOG_PERF)
+	{
+		batch->band_ticks.fetch_add(osd_ticks() - band_start, std::memory_order_relaxed);
+		batch->band_cpu_ns.fetch_add(thread_cpu_ns() - cpu_start, std::memory_order_relaxed);
 	}
 
 	// The last band to finish starts the next batch.  Once done is set the
 	// emulation thread may reuse the batch, so nothing here touches it after.
 	if (batch->bands_left.fetch_sub(1, std::memory_order_acq_rel) == 1)
 	{
+		if (VERBOSE & LOG_PERF)
+		{
+			// bands idle before the last one finishes are time lost to the batch barrier
+			const u64 wall = osd_ticks() - batch->launched;
+			device->m_perf_batch_wall.fetch_add(wall, std::memory_order_relaxed);
+			device->m_perf_band_slots.fetch_add(wall * u64(band.count), std::memory_order_relaxed);
+			device->m_perf_band_busy.fetch_add(batch->band_ticks.load(std::memory_order_relaxed), std::memory_order_relaxed);
+			device->m_perf_band_cpu_ns.fetch_add(batch->band_cpu_ns.load(std::memory_order_relaxed), std::memory_order_relaxed);
+		}
 		render_batch *next = nullptr;
 		{
 			std::lock_guard<std::mutex> lock(device->m_chain_lock);
@@ -5372,12 +5770,27 @@ void ati_rage128_device::render_batch_band(const render_batch &batch, int band, 
 {
 	for (const queued_prim &p : batch.prims)
 	{
+		const osd_ticks_t start = (VERBOSE & LOG_PERF) ? osd_ticks() : 0;
+		u32 pixels = 0;
 		switch (p.kind)
 		{
-		case PRIM_TRIANGLE: draw_triangle(batch.states[p.state], p.v[0], p.v[1], p.v[2], band, bands, batch.blocks[p.state]); break;
+		case PRIM_TRIANGLE: pixels = draw_triangle(batch.states[p.state], p.v[0], p.v[1], p.v[2], band, bands, batch.blocks[p.state]); break;
 		case PRIM_LINE: draw_line3d(batch.states[p.state], p.v[0], p.v[1], band, bands); break;
 		case PRIM_FILL: do_fill(batch.fills[p.state], band, bands); break;
 		default: draw_point(batch.states[p.state], p.v[0], band, bands); break;
+		}
+		if (VERBOSE & LOG_PERF)
+		{
+			const osd_ticks_t spent = osd_ticks() - start;
+			if (p.kind == PRIM_FILL)
+				m_perf_fill_ticks.fetch_add(spent, std::memory_order_relaxed);
+			else
+			{
+				const u32 id = batch.perf_ids[p.state];
+				m_perf_state_ticks[id].fetch_add(spent, std::memory_order_relaxed);
+				m_perf_state_pixels[id].fetch_add(pixels, std::memory_order_relaxed);
+				m_perf_state_prims[id].fetch_add(1, std::memory_order_relaxed);
+			}
 		}
 	}
 }
@@ -6166,6 +6579,16 @@ namespace {
 #endif
 constexpr bool PUML_ENABLE = RAGE128_PUML;
 constexpr bool PUML_VERIFY = RAGE128_PUML_VERIFY;
+
+// With RAGE128_PUML_TEXTURE=1, blocks fetch and filter single-level 16-bit
+// textures in VRAM themselves; otherwise every sample calls sample_texture
+// through a helper.  Off by default: it is exact, but the generated code is
+// still slower than the compiled sampler (51 against 42 ns a pixel, measured
+// single-threaded on arm64 for Unreal-like sky states).
+#ifndef RAGE128_PUML_TEXTURE
+#define RAGE128_PUML_TEXTURE 0
+#endif
+constexpr bool PUML_TEXTURE = RAGE128_PUML_TEXTURE;
 constexpr u32 PUML_VERIFY_LOG_LIMIT = 32;
 
 enum : int { RGN_VRAM = 0, RGN_STATE, RGN_TRI, RGN_STIPPLE };
@@ -6201,7 +6624,9 @@ std::string ati_rage128_device::puml_key(const raster_state &rs) const
 	{
 		for (const texunit &tu : rs.tex)
 		{
-			put(u32(tu.enabled) | (u32(tu.sec_st) << 1) | (u32(tu.need_lod) << 2));
+			put(u32(tu.enabled) | (u32(tu.sec_st) << 1) | (u32(tu.need_lod) << 2) | (u32(tu.linear_mag) << 3)
+					| (u32(tu.fmt & 15) << 4) | (u32(tu.s_mode & 3) << 8) | (u32(tu.t_mode & 3) << 10)
+					| (u32((tu.offset[tu.top] >> 30) && tile_pitch_ok(u32(2) << tu.width_l2)) << 12));
 			put(tu.combine);
 		}
 	}
@@ -6223,6 +6648,260 @@ void ati_rage128_device::puml_texture(const puml::ctx &c, puml::frame &f, u64 pa
 	const u32 texel = dev.sample_texture(rs.tex[BIT(param, 0)], rs.palette, f.fs(BIT(param, 8, 5)), f.fs(BIT(param, 13, 5)), lod, BIT(param, 2) ? &nearest : nullptr);
 	f.i[BIT(param, 23, 5)] = texel;
 	f.i[BIT(param, 28, 5)] = nearest;
+}
+
+// sample_texture() for one 16-bit level read straight from VRAM, as
+// sample_level() does it: texel ends up with the filtered (or point) colour,
+// nearest (if not negative) with the point sample for the colour keys.  The
+// filter is CBILERP, which is rgbaint_t::bilinear_filter on every host.
+void ati_rage128_device::puml_fetch_texture(puml::builder &g, int unit, const texunit &tu, int s, int t, int texel, int nearest, int fzero, int fone)
+{
+	using puml::opnd;
+	using puml::op;
+	using puml::type;
+	using regmark = puml::builder::regmark;
+	const regmark m = g.mark();
+	const int fmt = tu.fmt & 15;
+	const bool linear = tu.linear_mag;
+	const size_t unit_off = offsetof(raster_state, tex) + sizeof(texunit) * unit;
+
+	auto tri_u32 = [&g] (size_t off) { const int r = g.alloc_i(); g.ld(r, RGN_TRI, -1, u32(off), puml::SZ_U32); return r; };
+	const int vbase = tri_u32(offsetof(puml_tri, tex_vbase) + 4 * unit);
+	const int pitch = tri_u32(offsetof(puml_tri, tex_pitch) + 4 * unit);
+	const int wi = tri_u32(offsetof(puml_tri, tex_wi) + 4 * unit);
+	const int hi = tri_u32(offsetof(puml_tri, tex_hi) + 4 * unit);
+	// tiled or not is part of the key (it follows the texture's offset), so it's known here
+	const bool tiled = (tu.offset[tu.top] >> 30) && tile_pitch_ok(u32(2) << tu.width_l2);
+	const int border = g.alloc_i();
+	g.ld(border, RGN_STATE, -1, u32(unit_off + offsetof(texunit, border)), puml::SZ_U32);
+
+	// u = tex_coord(s * w), v = tex_coord(t * h)
+	const int u = g.alloc_f(), v = g.alloc_f();
+	{
+		const regmark m2 = g.mark();
+		const int k = g.alloc_f(), lo = g.alloc_f(), hi_ = g.alloc_f(), mn = g.alloc_f();
+		const int p = g.alloc_p();
+		g.fldi(lo, -16'777'216.0f);
+		g.fldi(hi_, 16'777'216.0f);
+		const size_t sizes[2] = { offsetof(puml_tri, tex_w) + 4 * unit, offsetof(puml_tri, tex_h) + 4 * unit };
+		const int coord[2] = { s, t }, out[2] = { u, v };
+		for (int c = 0; c < 2; c++)
+		{
+			g.fld(k, RGN_TRI, -1, u32(sizes[c]));
+			g.fop(op::FMUL, out[c], coord[c], k);
+			// (v > -2^24) ? std::min(v, 2^24) : -2^24, which also turns NaN into -2^24
+			g.fcmp(puml::C_GT, p, out[c], lo);
+			g.fop(op::FMIN, mn, out[c], hi_);
+			g.fsel(out[c], p, mn, lo);
+		}
+		g.release(m2);
+	}
+
+	// int(std::floor(x)) into i, and as a float into f, for |x| <= 2^24
+	auto floor_ = [&g, fone] (int fdst, int idst, int x) {
+		const regmark m2 = g.mark();
+		const int p = g.alloc_p(), t1 = g.alloc_i(), f1 = g.alloc_f();
+		g.ftoi(idst, x, puml::CV_S32);
+		g.itof(fdst, idst, puml::CV_S32);
+		g.fcmp(puml::C_GT, p, fdst, x);
+		g.alui(op::SUB, t1, idst, 1);
+		g.sel(idst, p, opnd::i(t1), opnd::i(idst));
+		g.fop(op::FSUB, f1, fdst, fone);
+		g.fsel(fdst, p, f1, fdst);
+		g.release(m2);
+	};
+	// tex_wrap(c, n, mode)
+	auto wrap = [&g] (int dst, int c, int n, int mode) {
+		const regmark m2 = g.mark();
+		const int a = g.alloc_i(), b = g.alloc_i();
+		const int p = g.alloc_p();
+		switch (mode & 3)
+		{
+		case 0:     // TEX_WRAP: c & (n - 1)
+			g.alui(op::SUB, a, n, 1);
+			g.alu(op::AND, dst, c, opnd::i(a));
+			break;
+		case 1:     // TEX_MIRROR
+			g.alui(op::SHL, a, n, 1);
+			g.alui(op::SUB, a, a, 1);
+			g.alu(op::AND, b, c, opnd::i(a));
+			g.cmp(puml::C_LT, p, b, opnd::i(n));
+			g.alu(op::SUB, a, a, opnd::i(b));
+			g.sel(dst, p, opnd::i(b), opnd::i(a));
+			break;
+		case 2:     // TEX_CLAMP: std::clamp(c, 0, n - 1)
+			g.alui(op::SUB, a, n, 1);
+			g.alui(op::MAXS, b, c, 0);
+			g.alu(op::MINS, dst, b, opnd::i(a));
+			break;
+		default:    // TEX_BORDER: -1 outside
+		{
+			const int q = g.alloc_p();
+			g.cmp(puml::C_LT, p, c, opnd::imm(0));
+			g.cmp(puml::C_GE, q, c, opnd::i(n));
+			g.pop(op::POR, p, p, q);
+			g.sel(dst, p, opnd::imm(0xffff'ffff), opnd::i(c));
+			break;
+		}
+		}
+		g.release(m2);
+	};
+	// A texel's byte offset splits into a part from its line and a part from its
+	// column, for tiled surfaces too: 16 pitch (y / 16) + 64 (y % 16) plus
+	// 1024 (xb / 64) + xb % 64.  The line part includes the texture's base.
+	auto row_part = [&g, tiled, pitch, vbase] (int dst, int y) {
+		const regmark m2 = g.mark();
+		const int a = g.alloc_i();
+		if (tiled)
+		{
+			g.alui(op::SHR, a, y, 4);
+			g.alu(op::MUL, a, a, opnd::i(pitch));
+			g.alui(op::SHL, a, a, 4);
+			g.alui(op::AND, dst, y, 15);
+			g.alui(op::SHL, dst, dst, 6);
+			g.alu(op::ADD, dst, dst, opnd::i(a));
+		}
+		else
+			g.alu(op::MUL, dst, y, opnd::i(pitch));
+		g.alu(op::ADD, dst, dst, opnd::i(vbase));
+		g.release(m2);
+	};
+	auto col_part = [&g, tiled] (int dst, int x) {
+		g.alui(op::SHL, dst, x, 1);
+		if (tiled)
+		{
+			const regmark m2 = g.mark();
+			const int a = g.alloc_i();
+			g.alui(op::SHR, a, dst, 6);
+			g.alui(op::SHL, a, a, 10);
+			g.alui(op::AND, dst, dst, 63);
+			g.alu(op::OR, dst, dst, opnd::i(a));
+			g.release(m2);
+		}
+	};
+	// one texel: the border colour for a negative coordinate, else read and expanded to ARGB8888
+	auto fetch = [&] (int dst, int x, int y, int row, int col) {
+		const regmark m2 = g.mark();
+		const int a = g.alloc_i(), b = g.alloc_i(), raw = g.alloc_i(), d = g.alloc_i();
+		const int pneg = g.alloc_p();
+		g.alu(op::OR, a, x, opnd::i(y));
+		g.cmp(puml::C_LT, pneg, a, opnd::imm(0));
+		g.alu(op::ADD, b, row, opnd::i(col));
+		g.alui(op::AND, b, b, ~1U);
+		g.ld(raw, RGN_VRAM, b, 0, puml::SZ_U16);
+		// palNbit(raw >> shift) << out, ORed into d
+		auto field = [&] (int shift, int bits, int out) {
+			g.alui(op::SHR, a, raw, shift);
+			g.alui(op::AND, a, a, (1U << bits) - 1);
+			switch (bits)
+			{
+			case 4: g.alui(op::MUL, a, a, 0x11); break;
+			case 5: g.alui(op::SHL, b, a, 3); g.alui(op::SHR, a, a, 2); g.alu(op::OR, a, a, opnd::i(b)); break;
+			case 6: g.alui(op::SHL, b, a, 2); g.alui(op::SHR, a, a, 4); g.alu(op::OR, a, a, opnd::i(b)); break;
+			default: break;
+			}
+			g.alui(op::SHL, a, a, out);
+			g.alu(op::OR, d, d, opnd::i(a));
+		};
+		switch (fmt)
+		{
+		case 3:
+		{
+			const int p = g.alloc_p();
+			g.tst(p, raw, opnd::imm(0x8000));
+			g.sel(d, p, opnd::imm(0xff00'0000), opnd::imm(0));
+			field(10, 5, 16); field(5, 5, 8); field(0, 5, 0);
+			break;
+		}
+		case 4:
+			g.ldi(d, 0xff00'0000);
+			field(11, 5, 16); field(5, 6, 8); field(0, 5, 0);
+			break;
+		default:    // 15
+			g.ldi(d, 0);
+			field(12, 4, 24); field(8, 4, 16); field(4, 4, 8); field(0, 4, 0);
+			break;
+		}
+		g.sel(dst, pneg, opnd::i(border), opnd::i(d));
+		g.release(m2);
+	};
+
+	if (!linear || (nearest >= 0))
+	{
+		const regmark m2 = g.mark();
+		const int fx = g.alloc_f(), fy = g.alloc_f(), ix = g.alloc_i(), iy = g.alloc_i(), c = g.alloc_i();
+		floor_(fx, ix, u);
+		floor_(fy, iy, v);
+		wrap(ix, ix, wi, tu.s_mode);
+		wrap(iy, iy, hi, tu.t_mode);
+		{
+			const regmark m3 = g.mark();
+			const int row = g.alloc_i(), col = g.alloc_i();
+			row_part(row, iy);
+			col_part(col, ix);
+			fetch(c, ix, iy, row, col);
+			g.release(m3);
+		}
+		if (nearest >= 0)
+			g.mov(nearest, c);
+		if (!linear)
+			g.mov(texel, c);
+		g.release(m2);
+	}
+
+	if (linear)
+	{
+		const regmark m2 = g.mark();
+		const int wu = g.alloc_i(), wv = g.alloc_i();
+		const int c00 = g.alloc_i(), c01 = g.alloc_i(), c10 = g.alloc_i(), c11 = g.alloc_i();
+		{
+			// the four texels around (u - 0.5, v - 0.5) and the weights frac8(f) = u8(std::clamp(int(f * 256), 0, 255))
+			const regmark m3 = g.mark();
+			const int xa = g.alloc_i(), xb = g.alloc_i(), ya = g.alloc_i(), yb = g.alloc_i();
+			{
+				const regmark m4 = g.mark();
+				const int fu = g.alloc_f(), fv = g.alloc_f(), x0f = g.alloc_f(), y0f = g.alloc_f(), k = g.alloc_f();
+				const int x0 = g.alloc_i(), y0 = g.alloc_i();
+				g.fldi(k, 0.5f);
+				g.fop(op::FSUB, fu, u, k);
+				g.fop(op::FSUB, fv, v, k);
+				floor_(x0f, x0, fu);
+				floor_(y0f, y0, fv);
+				wrap(xa, x0, wi, tu.s_mode);
+				g.alui(op::ADD, xb, x0, 1);
+				wrap(xb, xb, wi, tu.s_mode);
+				wrap(ya, y0, hi, tu.t_mode);
+				g.alui(op::ADD, yb, y0, 1);
+				wrap(yb, yb, hi, tu.t_mode);
+				g.fldi(k, 256.0f);
+				g.fop(op::FSUB, fu, fu, x0f);
+				g.fop(op::FMUL, fu, fu, k);
+				g.ftoi(wu, fu, puml::CV_S32);
+				g.alui(op::MAXS, wu, wu, 0);
+				g.alui(op::MINS, wu, wu, 255);
+				g.fop(op::FSUB, fv, fv, y0f);
+				g.fop(op::FMUL, fv, fv, k);
+				g.ftoi(wv, fv, puml::CV_S32);
+				g.alui(op::MAXS, wv, wv, 0);
+				g.alui(op::MINS, wv, wv, 255);
+				g.release(m4);
+			}
+			const int ra = g.alloc_i(), rb = g.alloc_i(), ca = g.alloc_i(), cb = g.alloc_i();
+			row_part(ra, ya);
+			row_part(rb, yb);
+			col_part(ca, xa);
+			col_part(cb, xb);
+			fetch(c00, xa, ya, ra, ca);
+			fetch(c01, xb, ya, ra, cb);
+			fetch(c10, xa, yb, rb, ca);
+			fetch(c11, xb, yb, rb, cb);
+			g.release(m3);
+		}
+
+		g.emit(op::CBILERP, type::I32, opnd::i(texel), opnd::i(c00), opnd::i(wu), opnd::i(wv));
+		g.release(m2);
+	}
+	g.release(m);
 }
 
 // Writes the block for a state.  Only fields that puml_key covers may steer
@@ -6542,7 +7221,27 @@ bool ati_rage128_device::puml_generate(const raster_state &rs, puml::block &b) c
 				regs.read_f = (1U << s) | (1U << t) | (lod ? (1U << rho) : 0);
 				regs.write_i = (1U << texel) | (1U << nearest);
 				regs.write_f = 0;
-				g.call(tex_helper, tex_param(unit, lod, key, s, t, rho, texel, nearest), regs);
+
+				// One level, read straight from VRAM, as sample_level() does for 16-bit
+				// textures there; other textures, or this one outside VRAM, use the helper.
+				const int fmt = tu.fmt & 15;
+				const bool inline_fetch = PUML_TEXTURE && !lod && ((fmt == 3) || (fmt == 4) || (fmt == 15));
+				if (inline_fetch)
+				{
+					const regmark mf = g.mark();
+					const int pd = g.alloc_p(), df = alloc_i();
+					g.ld(df, RGN_TRI, -1, u32(offsetof(puml_tri, tex_direct) + 4 * unit), puml::SZ_U32);
+					g.cmp(puml::C_NE, pd, df, opnd::imm(0));
+					g.if_(pd);
+					g.comment(util::string_format("unit %d: fetch and %s inline", unit, tu.linear_mag ? "filter" : "point sample"));
+					puml_fetch_texture(g, unit, tu, s, t, texel, key ? nearest : -1, fzero, fone);
+					g.else_();
+					g.call(tex_helper, tex_param(unit, lod, key, s, t, rho, texel, nearest), regs);
+					g.endif();
+					g.release(mf);
+				}
+				else
+					g.call(tex_helper, tex_param(unit, lod, key, s, t, rho, texel, nearest), regs);
 				g.release(m);
 			}
 			const int tr = alloc_f(), tg = alloc_f(), tb = alloc_f(), ta = alloc_f();
@@ -7255,13 +7954,13 @@ void ati_rage128_device::puml_verify_pixel(const puml::compiled &code, puml::ctx
 }
 
 // Only this band's rows are drawn: rows go to the bands in 16-line stripes.
-void ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v0, const vertex3d &v1, const vertex3d &v2, int band, int bands, const puml::compiled *block)
+u32 ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v0, const vertex3d &v1, const vertex3d &v2, int band, int bands, const puml::compiled *block)
 {
 	const float ex1 = v1.x - v0.x, ey1 = v1.y - v0.y;
 	const float ex2 = v2.x - v0.x, ey2 = v2.y - v0.y;
 	const float area = ex1 * ey2 - ex2 * ey1;
 	if (!(area != 0.0f) || !std::isfinite(area))
-		return;
+		return 0;
 
 	// face culling and fill mode (PM4_VC_FPU_SETUP: front is CCW with bit 0 set,
 	// back and front face functions in bits 2:1 and 4:3, bit 18 draws every face solid)
@@ -7271,17 +7970,17 @@ void ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v
 	switch (face_fn)
 	{
 	case 0:
-		return;
+		return 0;
 	case 1:
 		draw_point(rs, v0, band, bands);
 		draw_point(rs, v1, band, bands);
 		draw_point(rs, v2, band, bands);
-		return;
+		return 0;
 	case 2:
 		draw_line3d(rs, v0, v1, band, bands);
 		draw_line3d(rs, v1, v2, band, bands);
 		draw_line3d(rs, v2, v0, band, bands);
-		return;
+		return 0;
 	}
 
 	// flat colour source; the fog factor is still interpolated
@@ -7363,7 +8062,7 @@ void ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v
 	const int bminx = std::max(rs.sc_left, int(std::floor(std::min({ v0.x, v1.x, v2.x }))));
 	const int bmaxx = std::min(rs.sc_right, int(std::ceil(std::max({ v0.x, v1.x, v2.x }))));
 	if ((miny > maxy) || (bminx > bmaxx))
-		return;
+		return 0;
 
 	// level of detail, for units whose filters depend on it
 	const bool lod_unit[2] = { rs.tex[0].enabled && rs.tex[0].need_lod, rs.tex[1].enabled && rs.tex[1].need_lod };
@@ -7424,8 +8123,18 @@ void ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v
 		std::copy_n(dy, P_COUNT, tri.dy);
 		for (int unit = 0; unit < 2; unit++)
 		{
-			tri.tex_w[unit] = rs.tex[unit].enabled ? float(1 << rs.tex[unit].width_l2) : 1.0f;
-			tri.tex_h[unit] = rs.tex[unit].enabled ? float(1 << rs.tex[unit].height_l2) : 1.0f;
+			const texunit &tu = rs.tex[unit];
+			tri.tex_w[unit] = tu.enabled ? float(1 << tu.width_l2) : 1.0f;
+			tri.tex_h[unit] = tu.enabled ? float(1 << tu.height_l2) : 1.0f;
+
+			// as sample_level() sees the largest level
+			const u32 tbase = tu.offset[tu.top];
+			const u32 w = u32(1) << tu.width_l2, h = u32(1) << tu.height_l2;
+			tri.tex_vbase[unit] = tbase & TEX_OFFSET_MASK;
+			tri.tex_pitch[unit] = w * 2;
+			tri.tex_wi[unit] = w;
+			tri.tex_hi[unit] = h;
+			tri.tex_direct[unit] = tu.enabled && (TEXEL_BITS[tu.fmt & 15] == 16) && (((tbase & TEX_OFFSET_MASK) + w * 2 * h) <= AGP_WINDOW_BASE);
 		}
 		pc.base[RGN_VRAM] = m_vram;
 		pc.mask[RGN_VRAM] = m_vram_mask;
@@ -7437,6 +8146,7 @@ void ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v
 		pc.thread = u32(band);
 	}
 
+	u32 pixels = 0;
 	for (int y = miny; y <= maxy; y++)
 	{
 		// skip to this band's next stripe
@@ -7488,6 +8198,7 @@ void ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v
 					inside = false;
 			}
 
+			pixels += inside ? 1 : 0;
 			if (block)
 			{
 				if (inside && !in_run)
@@ -7515,6 +8226,7 @@ void ati_rage128_device::draw_triangle(const raster_state &rs, const vertex3d &v
 				shade_cpp(x, y, px, py);
 		}
 	}
+	return pixels;
 }
 
 // solid shading: CONSTANT_COLOR_C, no specular

@@ -6,18 +6,19 @@
 
     PUML arm64 backend, using asmjit.
 
-    Register map (static per block, as in UML's arm64 backend):
-        x19-x23, x28    I0-I5
-        d8-d15          F0-F7
+    Register map (static per block, as in UML's arm64 backend, but chosen
+    by use: the PUML registers used most in the pixel loop get these first):
+        x19-x23, x28    six I registers
+        d8-d15          eight F registers
         w27             P0-P15, one bit each
         x24             frame pointer
         x25             context pointer
         w26             current X
         x3-x6           region 0-3 base pointers, w7 the region 0 mask
-        x9-x13, x16     scratch (x16 also holds helper addresses)
+        x9-x12, x16     scratch (x16 also holds helper addresses)
         v16-v19         scratch
-        x0-x2, x8, x14, x15, x17    I6-I12 (caller-saved)
-        v0-v7, v20-v31              F8-F27 (caller-saved)
+        x0-x2, x8, x13-x15, x17     eight more I registers (caller-saved)
+        v0-v7, v20-v31              twenty more F registers (caller-saved)
     The rest live in the frame.  A helper call spills the mapped registers
     the helper reads and the caller-saved ones the block uses, and reloads
     the ones it writes, those caller-saved ones and the region pointers.
@@ -33,7 +34,10 @@
 
 #include "asmjit/asmjit/a64.h"
 
+#include <algorithm>
 #include <cstddef>
+#include <iterator>
+#include <vector>
 #include <cstdio>
 
 
@@ -51,7 +55,7 @@ const a64::Gp REG_MASK0 = a64::w7;
 constexpr u32 REG_BASE0 = 3;        // x3-x6
 
 constexpr u32 CALLEE_I[] = { 19, 20, 21, 22, 23, 28 };
-constexpr u32 CALLER_I[] = { 0, 1, 2, 8, 14, 15, 17 };
+constexpr u32 CALLER_I[] = { 0, 1, 2, 8, 13, 14, 15, 17 };
 constexpr u32 CALLEE_F[] = { 8, 9, 10, 11, 12, 13, 14, 15 };
 constexpr u32 CALLER_F[] = { 0, 1, 2, 3, 4, 5, 6, 7, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31 };
 
@@ -138,18 +142,49 @@ private:
 
 emitter::emitter(a64::Assembler &a, const block &b) : a(a), m_block(b)
 {
-	std::fill(std::begin(m_imap), std::end(m_imap), -1);
-	std::fill(std::begin(m_fmap), std::end(m_fmap), -1);
-	int n = 0;
-	for (u32 r : CALLEE_I)
-		m_imap[n++] = r;
-	for (u32 r : CALLER_I)
-		m_imap[n++] = r;
-	n = 0;
-	for (u32 r : CALLEE_F)
-		m_fmap[n++] = r;
-	for (u32 r : CALLER_F)
-		m_fmap[n++] = r;
+	// The static map is per block: the most-used PUML registers get host
+	// registers, callee-saved first, so a generator's numbering doesn't matter.
+	// Uses in the pixel loop count far more than those in the span prologue.
+	u32 use_i[REG_I] = { }, use_f[REG_F] = { };
+	bool in_loop = false;
+	for (const inst &i : b.code)
+	{
+		if (i.opcode == op::PIXEL)
+			in_loop = true;
+		const u32 weight = in_loop ? 16 : 1;
+		auto note = [&] (const opnd &o) {
+			if (o.kind == okind::IREG)
+				use_i[o.index] += weight;
+			else if (o.kind == okind::FREG)
+				use_f[o.index] += weight;
+		};
+		note(i.dst);
+		for (const opnd &o : i.src)
+			note(o);
+	}
+	auto assign = [] (const u32 *use, int count, int *map, const u32 *callee, size_t ncallee, const u32 *caller, size_t ncaller) {
+		std::vector<int> order;
+		for (int n = 0; n < count; n++)
+		{
+			map[n] = -1;
+			if (use[n])
+				order.push_back(n);
+		}
+		std::stable_sort(order.begin(), order.end(), [use] (int x, int y) { return use[x] > use[y]; });
+		size_t slot = 0;
+		for (int n : order)
+		{
+			if (slot < ncallee)
+				map[n] = callee[slot];
+			else if (slot < ncallee + ncaller)
+				map[n] = caller[slot - ncallee];
+			else
+				break;
+			slot++;
+		}
+	};
+	assign(use_i, REG_I, m_imap, CALLEE_I, std::size(CALLEE_I), CALLER_I, std::size(CALLER_I));
+	assign(use_f, REG_F, m_fmap, CALLEE_F, std::size(CALLEE_F), CALLER_F, std::size(CALLER_F));
 
 	// caller-saved registers the block uses, which helper calls must preserve
 	m_save_i = m_save_f = 0;
@@ -574,6 +609,18 @@ void emitter::emit(const inst &i)
 			iwrite(i.dst, d);
 			break;
 		}
+		if (i.src[1].is_imm() && ((i.opcode == op::AND) || (i.opcode == op::OR) || (i.opcode == op::XOR)))
+		{
+			const u64 v = w64 ? i.src[1].value : u32(i.src[1].value);
+			if (arm::Utils::is_logical_imm(v, w64 ? 64 : 32))
+			{
+				if (i.opcode == op::AND) a.and_(d, x, v);
+				else if (i.opcode == op::OR) a.orr(d, x, v);
+				else a.eor(d, x, v);
+				iwrite(i.dst, d);
+				break;
+			}
+		}
 		if (i.src[1].is_imm() && ((i.opcode == op::ADD) || (i.opcode == op::SUB)) && ((w64 ? i.src[1].value : u32(i.src[1].value)) < 4096))
 		{
 			if (i.opcode == op::ADD) a.add(d, x, unsigned(i.src[1].value));
@@ -615,15 +662,22 @@ void emitter::emit(const inst &i)
 	}
 	case op::CMP: case op::TST:
 	{
-		const a64::Gp x = isrc(i.src[0], w64, 9), y = isrc(i.src[1], w64, 10);
+		const a64::Gp x = isrc(i.src[0], w64, 9);
+		const u64 imm = i.src[1].is_imm() ? (w64 ? i.src[1].value : u32(i.src[1].value)) : 0;
 		if (i.opcode == op::TST)
 		{
-			a.tst(x, y);
+			if (i.src[1].is_imm() && arm::Utils::is_logical_imm(imm, w64 ? 64 : 32))
+				a.tst(x, imm);
+			else
+				a.tst(x, isrc(i.src[1], w64, 10));
 			a.cset(a64::w12, a64::CondCode::kNE);
 		}
 		else
 		{
-			a.cmp(x, y);
+			if (i.src[1].is_imm() && (imm < 4096))
+				a.cmp(x, unsigned(imm));
+			else
+				a.cmp(x, isrc(i.src[1], w64, 10));
 			a.cset(a64::w12, int_cond(i.cond));
 		}
 		pstore(i.dst, a64::w12);
@@ -711,6 +765,42 @@ void emitter::emit(const inst &i)
 		const a64::Vec x = fsrc(i.src[0], !w64, 16), d = fdst(i.dst, w64, 18);
 		a.fcvt(d, x);
 		fwrite(i.dst, d);
+		break;
+	}
+
+	case op::CBILERP:
+	{
+		// rgbaint_t::bilinear_filter's NEON arithmetic, step for step
+		const int c = i.src[0].index;
+		a.ins(a64::v16.s(0), isrc(opnd::i(c), false, 9));
+		a.ins(a64::v16.s(1), isrc(opnd::i(c + 2), false, 9));
+		a.ins(a64::v17.s(0), isrc(opnd::i(c + 1), false, 9));
+		a.ins(a64::v17.s(1), isrc(opnd::i(c + 3), false, 9));
+		a.uxtl(a64::v16.h8(), a64::v16.b8());
+		a.uxtl(a64::v17.h8(), a64::v17.b8());
+		// the weights are u8, as bilinear_filter takes them
+		a.and_(a64::w11, isrc(i.src[1], false, 9), 0xff);
+		a.movz(a64::w10, 256);
+		a.sub(a64::w10, a64::w10, a64::w11);
+		a.dup(a64::v18.h8(), a64::w10);
+		a.mul(a64::v16.h8(), a64::v16.h8(), a64::v18.h8());
+		a.dup(a64::v18.h8(), a64::w11);
+		a.mul(a64::v17.h8(), a64::v17.h8(), a64::v18.h8());
+		a.uaddl(a64::v19.s4(), a64::v16.h4(), a64::v17.h4());
+		a.uaddl2(a64::v17.s4(), a64::v16.h8(), a64::v17.h8());
+		a.and_(a64::w11, isrc(i.src[2], false, 9), 0xff);
+		a.movz(a64::w10, 256);
+		a.sub(a64::w10, a64::w10, a64::w11);
+		a.dup(a64::v18.s4(), a64::w10);
+		a.mul(a64::v19.s4(), a64::v19.s4(), a64::v18.s4());
+		a.dup(a64::v18.s4(), a64::w11);
+		a.mla(a64::v19.s4(), a64::v17.s4(), a64::v18.s4());
+		a.ushr(a64::v19.s4(), a64::v19.s4(), 16);
+		a.uqxtn(a64::v19.h4(), a64::v19.s4());
+		a.uqxtn(a64::v19.b8(), a64::v19.h8());
+		const a64::Gp d = idst(i.dst, false, 11);
+		a.umov(d, a64::v19.s(0));
+		iwrite(i.dst, d);
 		break;
 	}
 

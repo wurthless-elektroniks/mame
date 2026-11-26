@@ -17,7 +17,10 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <shared_mutex>
+#include <source_location>
 #include <string>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -231,6 +234,10 @@ private:
 		float row[PLANES];
 		float dx[PLANES], dy[PLANES];
 		float tex_w[2], tex_h[2];       // largest level, for the level of detail
+		// the largest level as sample_level() addresses it, for blocks that fetch texels themselves
+		u32 tex_vbase[2], tex_pitch[2]; // VRAM byte address, bytes per line (16-bit texels)
+		u32 tex_wi[2], tex_hi[2];       // size in texels
+		u32 tex_direct[2];              // 16-bit and wholly in VRAM, so read directly
 	};
 
 	// 3D primitives waiting for the render threads, each with its state
@@ -357,6 +364,23 @@ private:
 		std::vector<u32> data;
 	};
 
+	// A blit from a colour source in memory, as copy_rect() works it out: the
+	// columns and rows whose destination is inside the scissor, and what plot()
+	// does to each pixel.
+	struct copy_job
+	{
+		u32 src_base, spitch, dst_base, pitch;
+		int bpp;
+		bool src_tiled, dst_tiled;
+		u8 rop;
+		u32 pat, wmask;
+		bool compare, read_dst;
+		s32 dst_x, dst_y, src_x, src_y;
+		int x_step, y_step;
+		int col0, col1, row0, row1;
+		s32 src_right, src_bottom;
+	};
+
 	// LOG_PROBE: what happened to one pixel, recorded by the render threads
 	struct probe_event
 	{
@@ -389,19 +413,24 @@ private:
 	{
 		std::vector<raster_state> states;
 		std::vector<const puml::compiled *> blocks;     // each state's PUML block, or nullptr
+		std::vector<u32> perf_ids;          // LOG_PERF: each state's statistics slot
 		std::vector<queued_prim> prims;
 		vram_ranges reads, writes;
 		std::vector<fill_job> fills;
 		vram_ranges fill_writes;    // what the fills write, which other bands mustn't read
-		bool is_scale = false, is_host = false;
+		bool is_scale = false, is_host = false, is_copy = false;
 		scale_job scale;
 		host_job host;
+		copy_job copy;              // a present: a copy of a 3D frame to the screen
 		render_band bands[16];
 		std::atomic<int> bands_left{ 0 };
 		std::atomic<bool> done{ false };
+		osd_ticks_t launched = 0;           // LOG_PERF: when the first band started
+		std::atomic<u64> band_ticks{ 0 };   // LOG_PERF: time the bands spent working
+		std::atomic<u64> band_cpu_ns{ 0 };  // LOG_PERF: thread CPU time the bands got while working
 
-		bool empty() const { return prims.empty() && !is_scale && !is_host; }
-		void clear() { states.clear(); blocks.clear(); prims.clear(); fills.clear(); fill_writes.count = 0; reads.count = 0; writes.count = 0; is_scale = is_host = false; host.data.clear(); done.store(false); }
+		bool empty() const { return prims.empty() && !is_scale && !is_host && !is_copy; }
+		void clear() { states.clear(); blocks.clear(); perf_ids.clear(); band_ticks.store(0); band_cpu_ns.store(0); prims.clear(); fills.clear(); fill_writes.count = 0; reads.count = 0; writes.count = 0; is_scale = is_host = is_copy = false; host.data.clear(); done.store(false); }
 	};
 
 	// PCI GART translations, valid for one command buffer or primitive
@@ -503,6 +532,7 @@ private:
 	std::mutex m_chain_lock;            // guards m_chain and m_chain_busy
 	std::deque<render_batch *> m_chain; // submitted but not started
 	bool m_chain_busy;                  // a batch is rendering
+	std::shared_mutex m_scanout_lock;   // queued presents hold it shared, screen_update() exclusive
 	std::mutex m_probe_lock;
 	std::vector<probe_event> m_probe;
 	u32 m_probe_frame;
@@ -514,6 +544,33 @@ private:
 	std::vector<std::string> m_puml_verify_log;         // guarded by m_probe_lock
 	osd_ticks_t m_perf_wait_ticks;
 	u32 m_perf_second;
+
+	// LOG_PERF detail: why batches were submitted and waited for (by call site),
+	// how busy the render threads were, and where their time went by state
+	struct perf_site
+	{
+		const char *file;
+		u32 line;
+		std::string func;
+		u32 kicks, waits;
+		u64 kick_prims;
+		osd_ticks_t wait_ticks;
+	};
+	static constexpr u32 PERF_STATES = 1024;    // the last slot collects the rest
+	std::vector<perf_site> m_perf_sites;
+	std::unordered_map<std::string, u32> m_perf_state_ids;
+	std::vector<std::string> m_perf_state_desc;
+	std::atomic<u64> m_perf_state_ticks[PERF_STATES];
+	std::atomic<u64> m_perf_state_pixels[PERF_STATES];
+	std::atomic<u64> m_perf_state_prims[PERF_STATES];
+	std::atomic<u64> m_perf_fill_ticks, m_perf_band_busy, m_perf_band_slots, m_perf_batch_wall, m_perf_band_cpu_ns;
+	u32 m_perf_flips, m_perf_present_blits, m_perf_last_vblank;     // frames the guest shows
+	u32 m_perf_presents, m_perf_throttled, m_perf_queued;
+
+	// present throttle (a hack standing in for 3D engine timing): the bytes the
+	// last 3D state draws into, and the vblank count at the last present
+	u32 m_3d_dst_lo, m_3d_dst_hi;
+	u32 m_present_frame;
 	bool m_surf_on;             // a SURFACEn window is enabled
 	bool m_dst3d_tile_logged;
 	u32 m_zpitch_logged;
@@ -580,6 +637,9 @@ private:
 	bool queue_host_blit(const u32 *data, u32 avail);
 	void host_rows(const host_job &j, int first, int last);
 	bool copy_rect(int w, int h, int x_step, int y_step);
+	bool make_copy(int w, int h, int x_step, int y_step, copy_job &j) const;
+	void copy_rows(const copy_job &j, int band, int bands);
+	void queue_copy(const copy_job &j, u32 src_lo, u32 src_hi, u32 dst_lo, u32 dst_hi);
 	void gui_trigger_line();
 	void host_data_w(u32 data, bool last);
 	void host_pixel(u32 src, bool draw = true);
@@ -610,15 +670,22 @@ private:
 	void setup_raster_state();
 	void setup_texunit(texunit &unit, int which);
 	void queue_prim(u8 kind, const vertex3d &v0, const vertex3d &v1, const vertex3d &v2);
-	void kick_render();
+	void kick_render(const std::source_location &where = std::source_location::current());
 	void launch_batch(render_batch *batch);
 	void retire_batches();
 	std::unique_ptr<render_batch> spare_batch();
-	void wait_for_render();
-	void wait_for_outstanding();
-	void wait_for_vram_span(u32 start, u32 end, bool write);
-	void wait_for_vram_read(u32 addr) { wait_for_vram_span(addr, addr + 4, false); }
-	void wait_for_vram_write(u32 addr) { wait_for_vram_span(addr, addr + 4, true); }
+	void wait_for_render(const std::source_location &where = std::source_location::current());
+	void wait_for_outstanding(const std::source_location &where = std::source_location::current());
+	void wait_for_batch(render_batch *batch, const std::source_location &where = std::source_location::current());
+	render_batch *last_batch_touching(u32 start, u32 end, bool write, bool skip_presents);
+	void wait_for_vram_span(u32 start, u32 end, bool write, const std::source_location &where = std::source_location::current());
+	void wait_for_vram_read(u32 addr, const std::source_location &where = std::source_location::current()) { wait_for_vram_span(addr, addr + 4, false, where); }
+	void wait_for_vram_write(u32 addr, const std::source_location &where = std::source_location::current()) { wait_for_vram_span(addr, addr + 4, true, where); }
+	perf_site &perf_site_for(const std::source_location &where);
+	void note_3d_destination(const raster_state &rs);
+	static u64 thread_cpu_ns();
+	u32 perf_state_id(const raster_state &rs, const puml::compiled *block);
+	void perf_log_detail();
 	void rows_span(u32 base, u32 pitch, int bpp, s32 top, s32 bottom, s32 right, u32 &lo, u32 &hi) const;
 	void note_vram_use(render_batch &batch, const raster_state &rs);
 	void texture_spans(const raster_state &rs, vram_ranges &ranges) const;
@@ -628,11 +695,12 @@ private:
 	void render_batch_band(const render_batch &batch, int band, int bands);
 	static void apply_solid_color(const raster_state &rs, vertex3d &v);
 	static void direct_st(const raster_state &rs, vertex3d &v);
-	void draw_triangle(const raster_state &rs, const vertex3d &v0, const vertex3d &v1, const vertex3d &v2, int band, int bands, const puml::compiled *block = nullptr);
+	u32 draw_triangle(const raster_state &rs, const vertex3d &v0, const vertex3d &v1, const vertex3d &v2, int band, int bands, const puml::compiled *block = nullptr);
 	std::string puml_key(const raster_state &rs) const;
 	bool puml_generate(const raster_state &rs, puml::block &b) const;
 	const puml::compiled *puml_block(const raster_state &rs);
 	static void puml_texture(const puml::ctx &c, puml::frame &f, u64 param);
+	static void puml_fetch_texture(puml::builder &g, int unit, const texunit &tu, int s, int t, int texel, int nearest, int fzero, int fone);
 	void puml_verify_pixel(const puml::compiled &code, puml::ctx &pc, puml::frame &pf, const raster_state &rs, int x, int y, const std::function<void ()> &cpp);
 	void puml_flush_log();
 	void draw_point(const raster_state &rs, const vertex3d &v, int band, int bands);
