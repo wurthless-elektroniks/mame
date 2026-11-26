@@ -25,6 +25,7 @@
 #include "pdc20262.h"
 #include "permedia2.h"
 #include "promotion.h"
+#include "rage128.h"
 #include "riva128.h"
 #include "rivatnt.h"
 #include "rtl8029as_pci.h"
@@ -161,6 +162,10 @@ void pci_cards(device_slot_interface &device)
 	device.option_add("et4kw32p",       ET4KW32P_PCI);
 	// Trident
 	device.option_add("tgui9680",       TGUI9680_PCI);
+	// ATI
+	device.option_add("rage128gl",      ATI_RAGE128_GL_PCI);
+	device.option_add("rage128vr",      ATI_RAGE128_VR_PCI);
+	device.option_add("rage128pro",     ATI_RAGE128_PRO_PCI);
 
 	// 0x04 - multimedia controllers
 	// sound cards
@@ -213,6 +218,10 @@ void agp_cards(device_slot_interface &device)
 	device.option_add("geforce256",     GEFORCE256);
 	device.option_add("geforce256_ddr", GEFORCE256_DDR);
 	device.option_add("quadro",         QUADRO);
+	// ATI
+	device.option_add("rage128gl_agp",  ATI_RAGE128_GL_AGP);
+	device.option_add("rage128vr_agp",  ATI_RAGE128_VR_AGP);
+	device.option_add("rage128pro_agp", ATI_RAGE128_PRO_AGP);
 	// Cirrus Logic
 	device.option_add("laguna3d",       GD5465_LAGUNA3D);
 	// PowerVR VideoLogic

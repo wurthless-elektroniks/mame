@@ -111,9 +111,6 @@ protected:
 	virtual uint8_t calculate_status() override;
 
 	required_device<harddisk_image_device> m_image;
-
-private:
-	emu_timer *m_last_status_timer;
 };
 
 

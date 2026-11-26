@@ -1436,6 +1436,12 @@ macqd840av
 pmac4400
 pmac4400_200
 
+@source:apple/macyosemite.cpp
+pwrmacg3bw
+pwrmacg3bw350
+pwrmacg3bw400
+pwrmacg3bw450
+
 @source:apple/newton.cpp
 emate
 motmarco

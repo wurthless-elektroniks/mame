@@ -3052,6 +3052,8 @@ if MACHINES["PCI"] then
 	files {
 		MAME_DIR .. "src/devices/machine/pci.cpp",
 		MAME_DIR .. "src/devices/machine/pci.h",
+		MAME_DIR .. "src/devices/machine/cmd646.cpp",
+		MAME_DIR .. "src/devices/machine/cmd646.h",
 		MAME_DIR .. "src/devices/machine/pci-usb.cpp",
 		MAME_DIR .. "src/devices/machine/pci-usb.h",
 		MAME_DIR .. "src/devices/machine/pci-sata.cpp",

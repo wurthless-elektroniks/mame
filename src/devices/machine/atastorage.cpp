@@ -21,7 +21,6 @@
 
 
 #define TIME_PER_SECTOR_WRITE               (attotime::from_usec(100))
-#define TIME_PER_ROTATION                   (attotime::from_hz(5400/60))
 #define TIME_BETWEEN_SECTORS                (attotime::from_nsec(400))
 
 #define TIME_FULL_STROKE_SEEK               (attotime::from_usec(13000))
@@ -862,8 +861,6 @@ ide_hdd_device_base::ide_hdd_device_base(const machine_config &mconfig, device_t
 
 void ide_hdd_device_base::device_start()
 {
-	/* create a timer for timing status */
-	m_last_status_timer = machine().scheduler().timer_alloc(timer_expired_delegate());
 }
 
 //-------------------------------------------------
@@ -906,13 +903,14 @@ void ide_hdd_device_base::device_reset()
 
 uint8_t ide_hdd_device_base::calculate_status()
 {
+	// the index pulse comes round once per revolution at 5400 rpm and lasts 1/32 of it
+	constexpr u32 ROTATIONS_PER_SECOND = 5400 / 60;
+	constexpr u32 INDEX_SLOTS = 32;
+
 	uint8_t result = device_ata_hle_interface::calculate_status();
 
-	if (m_last_status_timer->elapsed() > TIME_PER_ROTATION)
-	{
+	if (!(machine().time().as_ticks(ROTATIONS_PER_SECOND * INDEX_SLOTS) % INDEX_SLOTS))
 		result |= IDE_STATUS_IDX;
-		m_last_status_timer->adjust(attotime::never);
-	}
 
 	return result;
 }
